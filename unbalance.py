@@ -8,7 +8,8 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 plt.style.use("ggplot")
-plt.rcParams.update({"font.size": 20})
+plt.rcParams.update({"font.size": 20, "pdf.fonttype": 42})
+PATH = ""
 
 
 def mle(val: np.ndarray, count: np.ndarray) -> tuple[np.ndarray, float]:
@@ -143,11 +144,7 @@ def gauss_sim(
         plt.xlabel("prob. of false alarm")
         plt.ylabel("prob. of detection")
         plt.tight_layout()
-        plt.savefig(
-            "/Users/veggente/Data/research/flowering/soybean-rna-seq-data/mleroc/roc-{}-{}-{}.pdf".format(  # pylint: disable=line-too-long
-                *n_samp, suffix
-            )
-        )
+        plt.savefig("{}roc-{}-{}-{}.pdf".format(PATH, *n_samp, suffix))
     return dist
 
 
@@ -382,9 +379,7 @@ def avg_levy(
         dist += np.array(new_dist)
         dist_full.append(new_dist)
     with open(
-        "/Users/veggente/Data/research/flowering/soybean-rna-seq-data/mleroc/levy-all-{}-{}-n{}-mo{}.json".format(  # pylint: disable=line-too-long
-            *n_samp, n_sims, mle_only
-        ),
+        "{}levy-all-{}-{}-n{}-mo{}.json".format(PATH, *n_samp, n_sims, mle_only),
         "w",
     ) as f:
         json.dump(dist_full, f)
@@ -403,18 +398,18 @@ def calc_avg_levy():
 
 def gen_roc_examples():
     """Generates ROC examples."""
-    # rng = np.random.default_rng(0)
-    # print(gauss_sim([10, 10], rng, "0", tol=1e-4))
-    # rng = np.random.default_rng(1)
-    # print(gauss_sim([100, 100], rng, "1", tol=1e-4))
-    # rng = np.random.default_rng(2)
-    # print(gauss_sim([1000, 1000], rng, "2", tol=1e-4))
-    # rng = np.random.default_rng(3)
-    # print(gauss_sim([10, 100], rng, "3", tol=1e-4))
-    # rng = np.random.default_rng(4)
-    # print(gauss_sim([10, 1000], rng, "4", tol=1e-4))
-    # rng = np.random.default_rng(5)
-    # print(gauss_sim([100, 1000], rng, "5", tol=1e-4))
+    rng = np.random.default_rng(0)
+    print(gauss_sim([10, 10], rng, "0", tol=1e-4))
+    rng = np.random.default_rng(1)
+    print(gauss_sim([100, 100], rng, "1", tol=1e-4))
+    rng = np.random.default_rng(2)
+    print(gauss_sim([1000, 1000], rng, "2", tol=1e-4))
+    rng = np.random.default_rng(3)
+    print(gauss_sim([10, 100], rng, "3", tol=1e-4))
+    rng = np.random.default_rng(4)
+    print(gauss_sim([10, 1000], rng, "4", tol=1e-4))
+    rng = np.random.default_rng(5)
+    print(gauss_sim([100, 1000], rng, "5", tol=1e-4))
     rng = np.random.default_rng(6)
     print(gauss_sim([0, 100], rng, "6", tol=1e-4))
 
@@ -424,11 +419,7 @@ def plot_avg_levy():
     samples = [[10, 10], [100, 100], [1000, 1000], [10, 100], [10, 1000], [100, 1000]]
     levy_all = []
     for n_samps in samples:
-        with open(
-            "/Users/veggente/Data/research/flowering/soybean-rna-seq-data/mleroc/levy-all-{}-{}-n500.json".format(  # pylint: disable=line-too-long
-                *n_samps
-            )
-        ) as f:
+        with open("{}levy-all-{}-{}-n500.json".format(PATH, *n_samps)) as f:
             levy_all.append(json.load(f))
     avg = np.array([np.mean(data, axis=0) for data in levy_all])
     error = np.array(
@@ -448,18 +439,12 @@ def plot_avg_levy():
         plt.xlabel("estimator")
         plt.ylabel("average Lévy distance")
         plt.tight_layout()
-        plt.savefig(
-            "/Users/veggente/Data/research/flowering/soybean-rna-seq-data/mleroc/levy-{}-{}.pdf".format(  # pylint: disable=line-too-long
-                *samples[i]
-            )
-        )
+        plt.savefig("{}levy-{}-{}.pdf".format(PATH, *samples[i]))
 
 
 def plot_avg_levy_mle_only():
     """Plots average Levy metric for MLE."""
-    with open(
-        "/Users/veggente/Data/research/flowering/soybean-rna-seq-data/mleroc/levy-all-0-100-n500.json"  # pylint: disable=line-too-long
-    ) as f:
+    with open("{}levy-all-0-100-n500.json".format(PATH)) as f:
         data = json.load(f)
     avg = np.mean(data, axis=0)
     error = np.std(data, axis=0, ddof=1) / np.sqrt(500)
@@ -476,14 +461,11 @@ def plot_avg_levy_mle_only():
     plt.xlabel("estimator")
     plt.ylabel("average Lévy distance")
     plt.tight_layout()
-    plt.savefig(
-        "/Users/veggente/Data/research/flowering/soybean-rna-seq-data/mleroc/levy-0-100.pdf"  # pylint: disable=line-too-long
-    )
+    plt.savefig("{}levy-0-100.pdf".format(PATH))
 
 
-def check_convergence():
-    """Checks convergence rate of MLE."""
-    print("[50, 150]:", avg_levy(0, [50, 150], 100, True, 1e-4))
-    print("[500, 1500]:", avg_levy(0, [500, 1500], 100, True, 1e-4))
-    print("[0, 200]:", avg_levy(0, [0, 200], 100, True, 1e-4))
-    print("[0, 2000]:", avg_levy(0, [0, 2000], 100, True, 1e-4))
+if __name__ == "__main__":
+    calc_avg_levy()
+    gen_roc_examples()
+    plot_avg_levy()
+    plot_avg_levy_mle_only()

@@ -1,6 +1,7 @@
 """MLE for likelihoods."""
 import math
 import json
+from dataclasses import dataclass
 import numpy as np
 from scipy.optimize import fsolve
 from scipy.stats import norm
@@ -10,6 +11,40 @@ from tqdm import tqdm
 plt.style.use("ggplot")
 plt.rcParams.update({"font.size": 20, "pdf.fonttype": 42})
 PATH = ""
+
+
+@dataclass
+class ROC:
+    """Receiver operating characteristic curve."""
+
+    pfa: np.ndarray
+    pdet: np.ndarray
+
+    def plot(self):
+        """Plots ROC curve."""
+        plt.figure()
+        plt.plot(
+            self.pfa,
+            self.pdet,
+        )
+        plt.xlabel("prob. of false alarm")
+        plt.ylabel("prob. of detection")
+        plt.tight_layout()
+        plt.show()
+
+
+class MLE:
+    """ML estimator."""
+
+    def __init__(self, likelihoods: list[float]):
+        """Initialization."""
+        self.likelihoods = likelihoods
+
+    def roc(self) -> ROC:
+        """ML estimator of the ROC."""
+        pmf = mle(np.array(self.likelihoods), np.array([0] + [1] * len(self.likelihoods) + [0]))
+        roc = get_roc(np.insert(self.likelihoods, 0, 0), pmf[0], 1e-6)
+        return ROC(roc[0, :], roc[1, :])
 
 
 def mle(val: np.ndarray, count: np.ndarray) -> tuple[np.ndarray, float]:

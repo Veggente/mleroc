@@ -2,6 +2,7 @@
 import unittest
 import numpy as np
 import unbalance
+import bhatta_bound
 
 
 class TestMLE(unittest.TestCase):
@@ -25,3 +26,20 @@ class TestMLE(unittest.TestCase):
         res = np.array([unbalance.gauss_roc(p) for p in pfa]).T
         tan = res[0, 100] + res[1, 100] * (pfa - 0.5)
         self.assertTrue((tan >= res[0]).all())
+
+
+class TestBCBound(unittest.TestCase):
+    """Tests BC bound."""
+
+    @staticmethod
+    def test_bc_w_true():
+        """Tests BC bound against true ROC."""
+        gauss = unbalance.GaussROC([0, 1], [1, 1])
+        pfa = np.linspace(0, 0.7, 8)
+        roc_true = unbalance.ROC(
+            pfa,
+            np.array([unbalance.gauss_roc(false_alarm)[0] for false_alarm in pfa]),
+            "true",
+        )
+        roc_bc = unbalance.ROC(pfa, bhatta_bound.new_roc_bound([gauss.bhatta() ** 2], pfa), "BC")
+        np.testing.assert_array_less(roc_true.pdet, roc_bc.pdet)

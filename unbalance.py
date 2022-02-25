@@ -7,6 +7,7 @@ from scipy.optimize import fsolve
 from scipy.stats import norm
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import bhatta_bound
 
 plt.style.use("ggplot")
 plt.rcParams.update({"font.size": 20, "pdf.fonttype": 42})
@@ -19,6 +20,7 @@ class ROC:
 
     pfa: np.ndarray
     pdet: np.ndarray
+    name: str
 
     def plot(self):
         """Plots ROC curve."""
@@ -33,6 +35,32 @@ class ROC:
         plt.show()
 
 
+class ROCSet:
+    """A set of ROCs."""
+
+    def __init__(self, list_roc: list[ROC]):
+        """Initialization."""
+        self.rocs = list_roc
+
+    def plot(self, saveas: str = ""):
+        """Plots ROCs."""
+        plt.figure()
+        for roc in self.rocs:
+            plt.plot(
+                roc.pfa,
+                roc.pdet,
+                label=roc.name,
+            )
+        plt.xlabel("prob. of false alarm")
+        plt.ylabel("prob. of detection")
+        plt.tight_layout()
+        plt.legend()
+        if saveas:
+            plt.savefig(saveas)
+        else:
+            plt.show()
+
+
 class MLE:
     """ML estimator."""
 
@@ -42,9 +70,49 @@ class MLE:
 
     def roc(self) -> ROC:
         """ML estimator of the ROC."""
-        pmf = mle(np.array(self.likelihoods), np.array([0] + [1] * len(self.likelihoods) + [0]))
+        pmf = mle(
+            np.array(self.likelihoods),
+            np.array([0] + [1] * len(self.likelihoods) + [0]),
+        )
         roc = get_roc(np.insert(self.likelihoods, 0, 0), pmf[0], 1e-6)
-        return ROC(roc[0, :], roc[1, :])
+        return ROC(roc[0, :], roc[1, :], "MLE")
+
+
+class GaussROC:
+    """ROC of binormal BHT."""
+
+    def __init__(self, means: list[float], var: list[float]):
+        """Initialization.
+
+        Args:
+            means: Means of binormal.
+            var: Variances of binormal.
+        """
+        self.means = means
+        self.var = var
+
+    def bhatta(self) -> float:
+        """Bhattacharyya coefficient."""
+        return (
+            np.exp(-((self.means[0] - self.means[1]) ** 2) / 4 / sum(self.var))
+            * (self.var[0] * self.var[1]) ** (1 / 4)
+            / np.sqrt(sum(self.var) / 2)
+        )
+
+    def plot(self, saveas: str = ""):
+        """Plots ROC bounds."""
+        pfa = np.linspace(0, 1, 101)
+        roc_set = ROCSet(
+            [
+                ROC(pfa, bhatta_bound.new_roc_bound([self.bhatta() ** 2], pfa), "BC"),
+                ROC(
+                    pfa,
+                    np.array([gauss_roc(false_alarm)[0] for false_alarm in pfa]),
+                    "true",
+                ),
+            ]
+        )
+        roc_set.plot(saveas)
 
 
 def mle(val: np.ndarray, count: np.ndarray) -> tuple[np.ndarray, float]:
@@ -589,6 +657,14 @@ def speed_test():
     digits = 6
     dist_alt = levy_alt(roc_est, digits)
     print("Calculated from true ROC (digits = {}): ".format(digits), dist_alt)
+
+
+def plot_bc_v_true_for_binormal():
+    """Plots BC bound against true ROC for binormal BHT.
+
+    This generates Fig. 9 in the causal network paper.
+    """
+    GaussROC([0, 1], [1, 1]).plot(PATH + "/binormal-bc-v-true-roc.pdf")
 
 
 if __name__ == "__main__":

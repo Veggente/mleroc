@@ -16,7 +16,22 @@ PATH = ""
 
 @dataclass
 class ROC:
-    """Receiver operating characteristic curve."""
+    """Receiver operating characteristic curve.
+
+    Linear interpolation is done for two adjacent points.
+
+    Attributes:
+        pfa: np.ndarray
+            Probability of false alarm.  Must be nondecreasing (but
+            not necessarily strictly increasing to allow vertical
+            jumps in ROC).
+        pdet: np.ndarray
+            Probability of detection.  Must be nondecreasing (but not
+            necessarily strictly increasing to allow horizontal lines
+            in ROC).
+        name: str
+            ROC name.
+    """
 
     pfa: np.ndarray
     pdet: np.ndarray

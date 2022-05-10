@@ -83,14 +83,14 @@ class MLE:
         """Initialization."""
         self.likelihoods = likelihoods
 
-    def roc(self) -> ROC:
+    def roc(self, label="MLE") -> ROC:
         """ML estimator of the ROC."""
         pmf = mle(
             np.array(self.likelihoods),
             np.array([0] + [1] * len(self.likelihoods) + [0]),
         )
         roc = get_roc(np.insert(self.likelihoods, 0, 0), pmf[0], 1e-6)
-        return ROC(roc[0, :], roc[1, :], "MLE")
+        return ROC(roc[0, :], roc[1, :], label)
 
 
 class GaussROC:

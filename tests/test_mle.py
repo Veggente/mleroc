@@ -41,5 +41,7 @@ class TestBCBound(unittest.TestCase):
             np.array([unbalance.gauss_roc(false_alarm)[0] for false_alarm in pfa]),
             "true",
         )
-        roc_bc = unbalance.ROC(pfa, bhatta_bound.new_roc_bound([gauss.bhatta() ** 2], pfa), "BC")
+        roc_bc = unbalance.ROC(
+            pfa, bhatta_bound.new_roc_bound([gauss.bhatta() ** 2], pfa), "BC"
+        )
         np.testing.assert_array_less(roc_true.pdet, roc_bc.pdet)

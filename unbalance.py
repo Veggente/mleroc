@@ -2,6 +2,7 @@
 import math
 import json
 from dataclasses import dataclass
+from typing import Optional, Union
 import numpy as np
 from scipy.optimize import fsolve
 from scipy.stats import norm
@@ -50,7 +51,7 @@ class ROC:
         plt.show()
 
 
-class ROCSet:
+class ROCSet:  # pylint: disable=too-few-public-methods
     """A set of ROCs."""
 
     def __init__(self, list_roc: list[ROC]):
@@ -76,7 +77,7 @@ class ROCSet:
             plt.show()
 
 
-class MLE:
+class MLE:  # pylint: disable=too-few-public-methods
     """ML estimator."""
 
     def __init__(self, likelihoods: list[float]):
@@ -128,6 +129,190 @@ class GaussROC:
             ]
         )
         roc_set.plot(saveas)
+
+
+class GaussSim:
+    """Gaussian simulations."""
+
+    def __init__(self, digits: int = 4, mean_diff: float = 1, mle_only: bool = False):
+        """Initialization.
+
+        Args:
+            digits: Number of digits for tolerance.
+            mean_diff: Mean difference of hypotheses.
+            mle_only: Does MLE only.
+        """
+        self._digits = digits
+        self._mean_diff = mean_diff
+        self._mle_only = mle_only
+
+    @property
+    def tol(self):
+        """Tolerance."""
+        return 10**-self._digits
+
+    def levy_single(
+        self,
+        n_samp: list[int],
+        rng: Optional[Union[np.random.Generator, int]] = None,
+        suffix: str = "",
+    ) -> list[float]:
+        """Gets Levy distances from a single estimation.
+
+        Args:
+            n_samp: Numbers of likelihood ratio samples under H0 and H1.
+            rng: Random number generator.
+            suffix: Suffix for saving ROC curve plot.
+
+        Returns:
+            Levy metrics from MLE, empirical and CE to the true ROC.
+        """
+        rng = np.random.default_rng(rng)
+        null = np.exp(
+            rng.normal(size=n_samp[0]) * self._mean_diff - 1 / 2 * self._mean_diff**2
+        )
+        alt = np.exp(
+            rng.normal(loc=self._mean_diff, size=n_samp[1]) * self._mean_diff
+            - 1 / 2 * self._mean_diff**2
+        )
+        val = np.append(null, alt)
+        count = np.concatenate(([0], np.ones(sum(n_samp)), [0]))
+        pmf, _ = mle(val, count)
+        pfa = np.linspace(0, 1, 101)
+        roc_est = get_roc(np.insert(val, 0, 0), pmf, self.tol)
+        dist_alt = [self.levy(roc_est)]
+        line_width = 3
+        if suffix:
+            plt.figure()
+            plt.plot(
+                pfa,
+                self.roc(pfa),
+                ":",
+                label="true",
+                linewidth=line_width,
+            )
+            plt.plot(
+                roc_est[0, :], roc_est[1, :], "-", label="MLE", linewidth=line_width
+            )
+        if n_samp[0] and n_samp[1] and not self._mle_only:
+            n_det = split(null, alt)
+            s_roc = eroc(n_det, False)
+            cs_roc = eroc(n_det, True)
+            if suffix:
+                plt.plot(
+                    s_roc[0, :],
+                    s_roc[1, :],
+                    "--",
+                    drawstyle="steps-post",
+                    label="E",
+                    linewidth=line_width,
+                )
+                plt.plot(
+                    cs_roc[0, :],
+                    cs_roc[1, :],
+                    "-.",
+                    label="CE",
+                    fillstyle="none",
+                    linewidth=line_width,
+                )
+            dist_alt.append(self.levy(zigzag(s_roc)))
+            dist_alt.append(self.levy(cs_roc))
+        else:
+            dist_alt.append(-1)
+            dist_alt.append(-1)
+        if suffix:
+            plt.legend()
+            plt.xlabel("prob. of false alarm")
+            plt.ylabel("prob. of detection")
+            plt.tight_layout()
+            plt.savefig(f"{PATH}roc-{n_samp[0]}-{n_samp[1]}-{suffix}.pdf")
+        return dist_alt
+
+    def levy(self, piecewise: np.ndarray) -> float:
+        """Lévy metric w.r.t. the Gaussian ROC curve.
+
+        Calculates ROC at discrete values first, and then projects to the
+        ROC estimate.
+
+        Args:
+            piecewise: The points that define the piecewise nondecreasing
+                function.  Each column is a point.
+
+        Returns:
+            The Lévy metric from piecewise to the true Gaussian ROC.
+        """
+        if sum(piecewise[:, 0]) > self.tol:
+            piecewise = np.insert(piecewise, 0, [0, 0], axis=1)
+        if sum(piecewise[:, -1]) < 2 - self.tol:
+            piecewise = np.append(piecewise, np.zeros((2, 1)), axis=1)
+        pfa = np.linspace(0, 1, 10**self._digits + 1)
+        begin = 0
+        max_dist = 0
+        for false_alarm, detection in zip(pfa, self.roc(pfa)):
+            while sum(piecewise[:, begin + 1]) < false_alarm + detection:
+                begin += 1
+            alpha = (sum(piecewise[:, begin + 1]) - false_alarm - detection) / (
+                sum(piecewise[:, begin + 1]) - sum(piecewise[:, begin])
+            )
+            dist = abs(
+                alpha * piecewise[0, begin]
+                + (1 - alpha) * piecewise[0, begin + 1]
+                - false_alarm
+            )
+            if dist > max_dist:
+                max_dist = dist
+        return max_dist
+
+    def levy_multiple(
+        self,
+        n_samp: list[int],
+        n_sims: int,
+        rng: Optional[Union[np.random.Generator, int]] = None,
+        from_file: bool = False,
+    ) -> np.ndarray:
+        """Average Levy metrics from multiple estimations.
+
+        Args:
+            n_samp: Numbers of samples.
+            n_sims: Number of simulations.
+            rng: Random number generator.
+            from_file: Loads data from file.
+
+        Returns:
+            Average Levy metrics.
+        """
+        filename = f"{PATH}levy-all-{n_samp[0]}-{n_samp[1]}-n{n_sims}-mo{self._mle_only}-mu{self._mean_diff}.json"  # pylint: disable=line-too-long
+        if from_file:
+            with open(filename, encoding="utf-8") as f:
+                dist_full = json.load(f)
+                dist = np.mean(dist_full, axis=0)
+        else:
+            rng = np.random.default_rng(rng)
+            dist = np.zeros(3)
+            dist_full = []
+            for _ in tqdm(range(n_sims)):
+                new_dist = self.levy_single(n_samp, rng)
+                dist += np.array(new_dist)
+                dist_full.append(new_dist)
+            with open(
+                filename,
+                "w",
+                encoding="utf-8",
+            ) as f:
+                json.dump(dist_full, f)
+            dist = dist / n_sims
+        return dist
+
+    def roc(self, pfa: np.ndarray) -> np.ndarray:
+        """ROC curve.
+
+        Args:
+            pfa: Probability of false alarm.
+
+        Returns:
+            Maximum probability of detection.
+        """
+        return 1 - norm.cdf(norm.ppf(1 - pfa) - self._mean_diff)
 
 
 def mle(val: np.ndarray, count: np.ndarray) -> tuple[np.ndarray, float]:
@@ -194,82 +379,10 @@ def dual_single(lag_mul: float, val: np.ndarray, count: np.ndarray) -> float:
     ) / sum(count) - 1
 
 
-def gauss_sim(
-    n_samp: list[int],
-    rng: np.random.Generator,
-    suffix: str = "",
-    digits: int = 4,
-    mle_only: bool = False,
-) -> list[float]:
-    """Gaussian hypothesis simulations.
-
-    Args:
-        n_samp: Numbers of likelihood ratio samples under H0 and H1.
-        rng: Random number generator.
-        suffix: Suffix for saving ROC curve plot.
-        digits: Number of digits for tolerance.
-        mle_only: Do MLE only.
-
-    Returns:
-        Levy metrics from MLE, empirical and CE to the true ROC.
-    """
-    tol = 10 ** -digits
-    null = np.exp(rng.normal(size=n_samp[0]) - 1 / 2)
-    alt = np.exp(rng.normal(loc=1, size=n_samp[1]) - 1 / 2)
-    val = np.append(null, alt)
-    count = np.concatenate(([0], np.ones(sum(n_samp)), [0]))
-    pmf, _ = mle(val, count)
-    pfa = np.linspace(0, 1, 101)
-    roc_est = get_roc(np.insert(val, 0, 0), pmf, tol)
-    dist_alt = [levy_alt(roc_est, digits)]
-    line_width = 3
-    if suffix:
-        plt.figure()
-        plt.plot(
-            pfa,
-            [gauss_roc(p, tol)[0] for p in pfa],
-            ":",
-            label="true",
-            linewidth=line_width,
-        )
-        plt.plot(roc_est[0, :], roc_est[1, :], "-", label="MLE", linewidth=line_width)
-    if n_samp[0] and n_samp[1] and not mle_only:
-        n_det = split(null, alt)
-        s_roc = eroc(n_det, False)
-        cs_roc = eroc(n_det, True)
-        if suffix:
-            plt.plot(
-                s_roc[0, :],
-                s_roc[1, :],
-                "--",
-                drawstyle="steps-post",
-                label="E",
-                linewidth=line_width,
-            )
-            plt.plot(
-                cs_roc[0, :],
-                cs_roc[1, :],
-                "-.",
-                label="CE",
-                fillstyle="none",
-                linewidth=line_width,
-            )
-        dist_alt.append(levy_alt(zigzag(s_roc), digits))
-        dist_alt.append(levy_alt(cs_roc, digits))
-    else:
-        dist_alt.append(-1)
-        dist_alt.append(-1)
-    if suffix:
-        plt.legend()
-        plt.xlabel("prob. of false alarm")
-        plt.ylabel("prob. of detection")
-        plt.tight_layout()
-        plt.savefig("{}roc-{}-{}-{}.pdf".format(PATH, *n_samp, suffix))
-    return dist_alt
-
-
 def gauss_roc(pfa: float, tol: float = 1e-9) -> np.ndarray:
     """Gaussian hypothesis true ROC curve.
+
+    OBSOLETE.
 
     Args:
         pfa: Probability of false alarm.  Assumed to be increasing.
@@ -363,6 +476,8 @@ def split(null: np.ndarray, alt: np.ndarray) -> list[int]:
 
 def levy(func: np.ndarray, cont: bool, tol: float = 1e-9) -> float:
     """Lévy metric w.r.t. the Gaussian ROC curve.
+
+    OBSOLETE.
 
     Args:
         func: The points that define the nondecreasing function.
@@ -489,60 +604,30 @@ def proj(
     return np.array([left, roc_middle[0]]), roc_middle[1]
 
 
-def avg_levy(seed: int, n_samp: list[int], n_sims: int, mle_only: bool) -> np.ndarray:
-    """Average Levy metrics.
-
-    Args:
-        seed: RNG seed.
-        n_samp: Numbers of samples.
-        n_sims: Number of simulations.
-        mle_only: Do MLE only.
-
-    Returns:
-        Average Levy metrics.
-    """
-    rng = np.random.default_rng(seed)
-    dist = np.zeros(3)
-    dist_full = []
-    for _ in tqdm(range(n_sims)):
-        new_dist = gauss_sim(n_samp, rng, mle_only=mle_only)
-        dist += np.array(new_dist)
-        dist_full.append(new_dist)
-    with open(
-        "{}levy-all-{}-{}-n{}-mo{}.json".format(PATH, *n_samp, n_sims, mle_only),
-        "w",
-    ) as f:
-        json.dump(dist_full, f)
-    return dist / n_sims
-
-
 def calc_avg_levy():
     """Calculates average Levy metrics."""
-    print(avg_levy(0, [10, 10], 500, False))
-    print(avg_levy(1, [100, 100], 500, False))
-    print(avg_levy(2, [1000, 1000], 500, False))
-    print(avg_levy(3, [10, 100], 500, False))
-    print(avg_levy(4, [10, 1000], 500, False))
-    print(avg_levy(5, [100, 1000], 500, False))
-    print(avg_levy(6, [0, 100], 500, True))
+    gauss = GaussSim()
+    print(gauss.levy_multiple([10, 10], 500, 0))
+    print(gauss.levy_multiple([100, 100], 500, 1))
+    print(gauss.levy_multiple([1000, 1000], 500, 2))
+    print(gauss.levy_multiple([10, 100], 500, 3))
+    print(gauss.levy_multiple([10, 1000], 500, 4))
+    print(gauss.levy_multiple([100, 1000], 500, 5))
+    gauss = GaussSim(mle_only=True)
+    print(gauss.levy_multiple([0, 100], 500, 6))
 
 
 def gen_roc_examples():
     """Generates ROC examples."""
-    rng = np.random.default_rng(0)
-    print(gauss_sim([10, 10], rng, "0"))
-    rng = np.random.default_rng(1)
-    print(gauss_sim([100, 100], rng, "1"))
-    rng = np.random.default_rng(2)
-    print(gauss_sim([1000, 1000], rng, "2"))
-    rng = np.random.default_rng(3)
-    print(gauss_sim([10, 100], rng, "3"))
-    rng = np.random.default_rng(4)
-    print(gauss_sim([10, 1000], rng, "4"))
-    rng = np.random.default_rng(5)
-    print(gauss_sim([100, 1000], rng, "5"))
-    rng = np.random.default_rng(6)
-    print(gauss_sim([0, 100], rng, "6", mle_only=True))
+    gauss = GaussSim()
+    print(gauss.levy_single([10, 10], 0, "0"))
+    print(gauss.levy_single([100, 100], 1, "1"))
+    print(gauss.levy_single([1000, 1000], 2, "2"))
+    print(gauss.levy_single([10, 100], 3, "3"))
+    print(gauss.levy_single([10, 1000], 4, "4"))
+    print(gauss.levy_single([100, 1000], 5, "5"))
+    gauss = GaussSim(mle_only=True)
+    print(gauss.levy_single([0, 100], 6, "6"))
 
 
 def plot_avg_levy():
@@ -550,7 +635,10 @@ def plot_avg_levy():
     samples = [[10, 10], [100, 100], [1000, 1000], [10, 100], [10, 1000], [100, 1000]]
     levy_all = []
     for n_samps in samples:
-        with open("{}levy-all-{}-{}-n500-mo{}.json".format(PATH, *n_samps, False)) as f:
+        with open(
+            f"{PATH}levy-all-{n_samps[0]}-{n_samps[1]}-n500-mo{False}.json",
+            encoding="utf-8",
+        ) as f:
             levy_all.append(json.load(f))
     avg = np.array([np.mean(data, axis=0) for data in levy_all])
     error = np.array(
@@ -570,12 +658,12 @@ def plot_avg_levy():
         plt.xlabel("estimator")
         plt.ylabel("average Lévy distance")
         plt.tight_layout()
-        plt.savefig("{}levy-{}-{}.pdf".format(PATH, *samples[i]))
+        plt.savefig(f"{PATH}levy-{samples[i][0]}-{samples[i][1]}.pdf")
 
 
 def plot_avg_levy_mle_only():
     """Plots average Levy metric for MLE."""
-    with open("{}levy-all-0-100-n500-mo{}.json".format(PATH, True)) as f:
+    with open(f"{PATH}levy-all-0-100-n500-mo{True}.json", encoding="utf-8") as f:
         data = json.load(f)
     avg = np.mean(data, axis=0)
     error = np.std(data, axis=0, ddof=1) / np.sqrt(500)
@@ -592,46 +680,7 @@ def plot_avg_levy_mle_only():
     plt.xlabel("estimator")
     plt.ylabel("average Lévy distance")
     plt.tight_layout()
-    plt.savefig("{}levy-0-100.pdf".format(PATH))
-
-
-def levy_alt(piecewise: np.ndarray, digits: int) -> float:
-    """Lévy metric w.r.t. the Gaussian ROC curve.
-
-    Calculates ROC at discrete values first, and then projects to the
-    ROC estimate.
-
-    Args:
-        piecewise: The points that define the piecewise nondecreasing
-            function.  Each column is a point.
-        digits: Number of digits for ROC calculation.
-
-    Returns:
-        The Lévy metric from piecewise to the true Gaussian ROC.
-    """
-    tol = 10 ** -digits
-    if sum(piecewise[:, 0]) > tol:
-        piecewise = np.insert(piecewise, 0, [0, 0], axis=1)
-    if sum(piecewise[:, -1]) < 2 - tol:
-        piecewise = np.append(piecewise, np.zeros((2, 1)), axis=1)
-    pfa = np.linspace(0, 1, 10 ** digits + 1)
-    roc = 1 - norm.cdf(norm.ppf(1 - pfa) - 1)
-    begin = 0
-    max_dist = 0
-    for false_alarm, detection in zip(pfa, roc):
-        while sum(piecewise[:, begin + 1]) < false_alarm + detection:
-            begin += 1
-        alpha = (sum(piecewise[:, begin + 1]) - false_alarm - detection) / (
-            sum(piecewise[:, begin + 1]) - sum(piecewise[:, begin])
-        )
-        dist = abs(
-            alpha * piecewise[0, begin]
-            + (1 - alpha) * piecewise[0, begin + 1]
-            - false_alarm
-        )
-        if dist > max_dist:
-            max_dist = dist
-    return max_dist
+    plt.savefig(f"{PATH}levy-0-100.pdf")
 
 
 def zigzag(func: np.ndarray) -> np.ndarray:
@@ -656,34 +705,111 @@ def speed_test():
     print("Samples: ", n_samp)
     tol = 1e-2
     dist = levy(roc_est, True, tol)
-    print("Calculated from estimated ROC (tol = {}): ".format(tol), dist)
+    print(f"Calculated from estimated ROC (tol = {tol}): ", dist)
     tol = 1e-4
     dist = levy(roc_est, True, tol)
-    print("Calculated from estimated ROC (tol = {}): ".format(tol), dist)
+    print(f"Calculated from estimated ROC (tol = {tol}): ", dist)
     tol = 1e-6
     dist = levy(roc_est, True, tol)
-    print("Calculated from estimated ROC (tol = {}): ".format(tol), dist)
+    print(f"Calculated from estimated ROC (tol = {tol}): ", dist)
     digits = 2
-    dist_alt = levy_alt(roc_est, digits)
-    print("Calculated from true ROC (digits = {}): ".format(digits), dist_alt)
+    gauss = GaussSim(digits)
+    dist_alt = gauss.levy(roc_est)
+    print(f"Calculated from true ROC (digits = {digits}): ", dist_alt)
     digits = 4
-    dist_alt = levy_alt(roc_est, digits)
-    print("Calculated from true ROC (digits = {}): ".format(digits), dist_alt)
+    gauss = GaussSim(digits)
+    dist_alt = gauss.levy(roc_est)
+    print(f"Calculated from true ROC (digits = {digits}): ", dist_alt)
     digits = 6
-    dist_alt = levy_alt(roc_est, digits)
-    print("Calculated from true ROC (digits = {}): ".format(digits), dist_alt)
+    gauss = GaussSim(digits)
+    dist_alt = gauss.levy(roc_est)
+    print(f"Calculated from true ROC (digits = {digits}): ", dist_alt)
 
 
 def plot_bc_v_true_for_binormal():
     """Plots BC bound against true ROC for binormal BHT.
 
-    This generates Fig. 9 in the causal network paper.
+    This generates Fig. 16 in the causal network paper (commit 408fe8d).
     """
-    GaussROC([0, 1], [1, 1]).plot(PATH + "/binormal-bc-v-true-roc.pdf")
+    GaussROC([0, 1], [1, 1]).plot(f"{PATH}binormal-bc-v-true-roc.pdf")
+
+
+def error_v_diff(from_file: bool):
+    """Evaluates errors of MLE with respect to difference in hypotheses."""
+    diff_list = [0.1] + np.linspace(0.5, 4, 8).tolist()
+    dist = []
+    for diff in diff_list:
+        gauss = GaussSim(mean_diff=diff)
+        dist.append(gauss.levy_multiple([100, 100], 500, from_file=from_file))
+    dist = np.array(dist)
+    plt.figure()
+    line_width = 3
+    plt.plot(diff_list, dist[:, 0], "-o", label="MLE", linewidth=line_width, color="C1")
+    plt.plot(diff_list, dist[:, 1], "--o", label="E", linewidth=line_width, color="C2")
+    plt.plot(diff_list, dist[:, 2], "-.o", label="CE", linewidth=line_width, color="C3")
+    plt.legend()
+    plt.xlabel(r"mean difference $\mu$")
+    plt.ylabel("average Lévy distance")
+    plt.tight_layout()
+    plt.savefig(f"{PATH}levy-v-diff-delta-mu.pdf")
+
+
+def error_v_composition(from_file: bool):
+    """Evaluates errors with different sample composition."""
+    total_samp = 100
+    n_trials = 500
+    gauss_mle = GaussSim(mle_only=True)
+    gauss = GaussSim()
+    error = [gauss_mle.levy_multiple([0, total_samp], n_trials, from_file=from_file)]
+    for alpha in np.linspace(0.1, 0.9, 9):
+        error.append(
+            gauss.levy_multiple(
+                [int(total_samp * alpha), int(total_samp * (1 - alpha))],
+                n_trials,
+                from_file=from_file,
+            )
+        )
+    error.append(
+        gauss_mle.levy_multiple([total_samp, 0], n_trials, from_file=from_file)
+    )
+    error = np.array(error)
+    plt.figure()
+    line_width = 3
+    plt.plot(
+        np.linspace(0, 1, 11),
+        error[:, 0],
+        "-o",
+        label="MLE",
+        linewidth=line_width,
+        color="C1",
+    )
+    plt.plot(
+        np.linspace(0.1, 0.9, 9),
+        error[1:-1, 1],
+        "--o",
+        label="E",
+        linewidth=line_width,
+        color="C2",
+    )
+    plt.plot(
+        np.linspace(0.1, 0.9, 9),
+        error[1:-1, 2],
+        "-.o",
+        label="CE",
+        linewidth=line_width,
+        color="C3",
+    )
+    plt.legend()
+    plt.xlabel(r"fraction of null samples $\alpha$")
+    plt.ylabel("average Lévy distance")
+    plt.tight_layout()
+    plt.savefig(f"{PATH}levy-v-alpha.pdf")
 
 
 if __name__ == "__main__":
-    calc_avg_levy()
-    gen_roc_examples()
-    plot_avg_levy()
-    plot_avg_levy_mle_only()
+    # calc_avg_levy()
+    # gen_roc_examples()
+    # plot_avg_levy()
+    # plot_avg_levy_mle_only()
+    # error_v_diff(True)
+    error_v_composition(True)

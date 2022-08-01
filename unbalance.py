@@ -10,9 +10,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 import bhatta_bound
 
-plt.style.use("ggplot")
-plt.rcParams.update({"font.size": 20, "pdf.fonttype": 42})
-PATH = ""
+PATH = "/Users/veggente/Data/research/flowering/soybean-rna-seq-data/mleroc/"
 
 
 @dataclass
@@ -49,6 +47,10 @@ class ROC:
         plt.ylabel("prob. of detection")
         plt.tight_layout()
         plt.show()
+
+    def get_pdet(self, pfa: float) -> float:
+        """Gets pdet by interpolation."""
+        return np.interp(pfa, self.pfa, self.pdet)
 
 
 class ROCSet:  # pylint: disable=too-few-public-methods
@@ -744,9 +746,39 @@ def error_v_diff(from_file: bool):
     dist = np.array(dist)
     plt.figure()
     line_width = 3
-    plt.plot(diff_list, dist[:, 0], "-o", label="MLE", linewidth=line_width, color="C1")
-    plt.plot(diff_list, dist[:, 1], "--o", label="E", linewidth=line_width, color="C2")
-    plt.plot(diff_list, dist[:, 2], "-.o", label="CE", linewidth=line_width, color="C3")
+    plt.plot(
+        diff_list,
+        dist[:, 0],
+        "-x",
+        label="MLE",
+        linewidth=line_width,
+        color="C1",
+        markersize=12,
+        fillstyle="none",
+        markeredgewidth="2",
+    )
+    plt.plot(
+        diff_list,
+        dist[:, 1],
+        "--o",
+        label="E",
+        linewidth=line_width,
+        color="C2",
+        markersize=12,
+        fillstyle="none",
+        markeredgewidth="2",
+    )
+    plt.plot(
+        diff_list,
+        dist[:, 2],
+        "-.^",
+        label="CE",
+        linewidth=line_width,
+        color="C3",
+        markersize=12,
+        fillstyle="none",
+        markeredgewidth="2",
+    )
     plt.legend()
     plt.xlabel(r"mean difference $\mu$")
     plt.ylabel("average Lévy distance")
@@ -756,7 +788,7 @@ def error_v_diff(from_file: bool):
 
 def error_v_composition(from_file: bool):
     """Evaluates errors with different sample composition."""
-    total_samp = 100
+    total_samp = 200
     n_trials = 500
     gauss_mle = GaussSim(mle_only=True)
     gauss = GaussSim()
@@ -778,10 +810,13 @@ def error_v_composition(from_file: bool):
     plt.plot(
         np.linspace(0, 1, 11),
         error[:, 0],
-        "-o",
+        "-x",
         label="MLE",
         linewidth=line_width,
         color="C1",
+        markersize=12,
+        fillstyle="none",
+        markeredgewidth="2",
     )
     plt.plot(
         np.linspace(0.1, 0.9, 9),
@@ -790,26 +825,37 @@ def error_v_composition(from_file: bool):
         label="E",
         linewidth=line_width,
         color="C2",
+        markersize=12,
+        fillstyle="none",
+        markeredgewidth="2",
     )
     plt.plot(
         np.linspace(0.1, 0.9, 9),
         error[1:-1, 2],
-        "-.o",
+        "-.^",
         label="CE",
         linewidth=line_width,
         color="C3",
+        markersize=12,
+        fillstyle="none",
+        markeredgewidth="2",
     )
     plt.legend()
     plt.xlabel(r"fraction of null samples $\alpha$")
     plt.ylabel("average Lévy distance")
+    plt.ylim(0, 0.11)
     plt.tight_layout()
     plt.savefig(f"{PATH}levy-v-alpha.pdf")
 
 
+def isit_example():
+    """ISIT presentation example."""
+    likelihoods = [0.9, 2.2, 1.5, 0.6, 0.2, 2.5, 1.8]
+    print(mle(np.array(likelihoods), np.array([0] + [1] * 7 + [0])))
+
+
 if __name__ == "__main__":
-    # calc_avg_levy()
-    # gen_roc_examples()
-    # plot_avg_levy()
-    # plot_avg_levy_mle_only()
-    # error_v_diff(True)
-    error_v_composition(True)
+    plt.style.use("ggplot")
+    plt.rcParams.update({"font.size": 20, "pdf.fonttype": 42})
+    plt.rcParams.update({"font.size": 20})
+    isit_example()

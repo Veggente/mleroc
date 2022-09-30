@@ -1,10 +1,12 @@
-"""MLE for likelihoods."""
+"""MLE for likelihoods."""  # pylint: disable=too-many-lines
 import math
 import json
 from dataclasses import dataclass
 from typing import Optional, Union
+import bisect
 import numpy as np
 from scipy.optimize import fsolve
+from scipy.stats._distn_infrastructure import rv_sample
 from scipy.stats import norm
 import matplotlib.pyplot as plt
 from tqdm import tqdm
@@ -22,8 +24,8 @@ class ROC:
     Attributes:
         pfa: np.ndarray
             Probability of false alarm.  Must be nondecreasing (but
-            not necessarily strictly increasing to allow vertical
-            jumps in ROC).
+            could have repeating 0's to allow vertical jumps in ROC at
+            0 fa).
         pdet: np.ndarray
             Probability of detection.  Must be nondecreasing (but not
             necessarily strictly increasing to allow horizontal lines
@@ -51,6 +53,74 @@ class ROC:
     def get_pdet(self, pfa: float) -> float:
         """Gets pdet by interpolation."""
         return np.interp(pfa, self.pfa, self.pdet)
+
+    def like_dist(self, null: bool) -> np.ndarray:
+        """Likelihood distribution.
+
+        Assumes the representation is minimal in the sense that no
+        points can be removed.  Also assumes the slopes are bounded.
+        """
+        slopes = []
+        pmf = []
+        for i, false_alarm in enumerate(self.pfa[:-1]):
+            pfa_inc = self.pfa[i + 1] - false_alarm
+            pdet_inc = self.pdet[i + 1] - self.pdet[i]
+            slopes.append(pdet_inc / pfa_inc)
+            pmf.append(pfa_inc if null else pdet_inc)
+        return np.array([slopes[::-1], pmf[::-1]])
+
+    def like_dist_mix(self, alpha: float) -> np.ndarray:
+        """Likelihood distribution mixture."""
+        null = self.like_dist(True)
+        alt = self.like_dist(False)
+        return alpha * null + (1 - alpha) * alt
+
+    def offset(self, pfa: float) -> float:
+        """Offset of a linear piece."""
+        left = bisect.bisect_left(self.pfa, pfa) - 1
+        return (
+            self.pdet[left]
+            - (self.pdet[left + 1] - self.pdet[left])
+            / (self.pfa[left + 1] - self.pfa[left])
+            * self.pfa[left]
+        )
+
+    @classmethod
+    def from_slopes(cls, slopes: list[float], null_prob: list[float]) -> "ROC":
+        """Generates ROC from slopes.
+
+        Args:
+            slopes: Increasing slopes.
+            null_prob: Probability masses under null hypothesis.
+
+        Returns:
+            An ROC object.
+        """
+        pfa, pdet = [1], [1]
+        for i, slo in enumerate(slopes):
+            pfa.append(pfa[-1] - null_prob[i])
+            pdet.append(pdet[-1] - null_prob[i] * slo)
+            if pdet[-1] < pfa[-1]:
+                raise ValueError("Slopes and probabilities do not form a valid ROC.")
+        pfa.append(0)
+        pdet.append(0)
+        return cls(pfa[::-1], pdet[::-1], "true")
+
+    def gen_mix_like(
+        self, alpha: float, size: int, random_state: np.random.Generator
+    ) -> np.ndarray:
+        """Generates likelihood ratios from the mixed distribution.
+
+        Args:
+            alpha: Fraction of null samples.
+            size: Number of samples.
+            random_state: Random number generator.
+
+        Returns:
+            Likelihood ratio samples.
+        """
+        dist = DiscDist(self.like_dist_mix(alpha))
+        return dist.rvs(size=size, random_state=random_state)
 
 
 class ROCSet:  # pylint: disable=too-few-public-methods
@@ -153,7 +223,7 @@ class GaussSim:
         """Tolerance."""
         return 10**-self._digits
 
-    def levy_single(
+    def levy_single(  # pylint: disable=too-many-locals
         self,
         n_samp: list[int],
         rng: Optional[Union[np.random.Generator, int]] = None,
@@ -521,7 +591,7 @@ def levy(func: np.ndarray, cont: bool, tol: float = 1e-9) -> float:
     return dist
 
 
-def levy_linear(
+def levy_linear(  # pylint: disable=too-many-locals
     begin: np.ndarray,
     end: np.ndarray,
     prev_proj: np.ndarray,
@@ -854,8 +924,143 @@ def isit_example():
     print(mle(np.array(likelihoods), np.array([0] + [1] * 7 + [0])))
 
 
+# def mle_convergence_3_slope_values():
+#     """MLE convergence study for 3 slope values."""
+#     infty = 1000
+#     p_null_0 = 0.6
+#     slope = 2
+#     small_pfa = (1 - slope * (1 - p_null_0)) / (infty - slope)
+#     true_roc = ROC(
+#         np.array([0, small_pfa, 1 - p_null_0, 1]),
+#         np.array([0, small_pfa * infty, 1, 1]),
+#         "true",
+#     )
+#     alpha = 0.3
+#     n_samp = 100
+#     mix = true_roc.like_dist_mix(alpha)
+#     rng = np.random.default_rng(0)
+#     samples = rv_discrete(values=(mix[0], mix[1])).rvs(size=n_samp, random_state=rng)
+#     est = MLE(list(samples))
+#     est_roc = est.roc()
+#     print(est_roc.pdet)
+#     print(f"{est_roc.offset(0.2) = }", f"{true_roc.offset(0.2) = }")
+#     true_roc.plot()
+#     est_roc.plot()
+
+
+def mle_convergence_3_slope_values_gen():
+    """MLE convergence sutdy with 3 general slope values."""
+    slope = [0.3, 1]
+    p_null = [0.5, 0.3]
+    pfa = np.array([1, 1 - p_null[0], 1 - sum(p_null), 0])[::-1]
+    pdet = np.array([1, 1 - slope[0] * p_null[0], 1 - np.inner(slope, p_null), 0])[::-1]
+    true_roc = ROC(pfa, pdet, "true")
+    alpha = 0.3
+    n_samp = 10000
+    rng = np.random.default_rng()
+    dist = DiscDist(true_roc.like_dist_mix(alpha))
+    n_sims = 10000
+    errors = []
+    mid_point = 1 - p_null[0] - p_null[1] / 2
+    true_offset = true_roc.offset(mid_point)
+    for _ in tqdm(range(n_sims)):
+        est_roc = MLE(list(dist.rvs(size=n_samp, random_state=rng))).roc()
+        errors.append(est_roc.offset(mid_point) - true_offset)
+    plt.figure()
+    plt.hist(errors, bins=50)
+    plt.show()
+
+
+def mle_convergence():
+    """MLE convergence study with general slopes."""
+    slope = [0.3, 1]
+    p_null = [0.5, 0.3]
+    true_roc = ROC.from_slopes(slope, p_null)
+    alpha = 0.3
+    n_samp = 1000
+    rng = np.random.default_rng()
+    errors = []
+    mid_point = 1 - p_null[0] - p_null[1] / 2
+    true_offset = true_roc.offset(mid_point)
+    for _ in tqdm(range(1000)):
+        est_roc = MLE(list(true_roc.gen_mix_like(alpha, n_samp, rng))).roc()
+        errors.append(est_roc.offset(mid_point) - true_offset)
+    plt.figure()
+    plt.hist(errors, bins=50)
+    plt.show()
+
+
+class DiscDist(rv_sample):
+    """Discrete distribution on float numbers."""
+
+    def __init__(self, flt_values: np.ndarray):
+        super().__init__(values=(list(range(flt_values.shape[1])), list(flt_values[1])))
+        self.val = flt_values[0]
+
+    def rvs(
+        self,
+        *args,
+        size: Optional[int] = None,
+        random_state: Optional[np.random.Generator] = None,
+        **kwds,  # pylint: disable=unused-argument
+    ) -> np.ndarray:
+        """Generates i.i.d. random variables."""
+        indices = super().rvs(size=size, random_state=random_state)
+        return self.val[indices]
+
+
+def mle_convergence_4_val():
+    """MLE convergence study with 4 slopes."""
+    slope = [0.1, 0.4, 1]
+    p_null = [0.4, 0.3, 0.2]
+    true_roc = ROC.from_slopes(slope, p_null)
+    alpha = 0.3
+    n_samp = 10000
+    rng = np.random.default_rng()
+    errors = []
+    mid_points = [1 - p_null[0] - p_null[1] / 2, 1 - sum(p_null[:2]) - p_null[2] / 2]
+    true_offsets = np.array([true_roc.offset(x) for x in mid_points])
+    n_sim = 10000
+    for _ in tqdm(range(n_sim)):
+        est_roc = MLE(list(true_roc.gen_mix_like(alpha, n_samp, rng))).roc()
+        est_offsets = np.array([est_roc.offset(x) for x in mid_points])
+        errors.append(est_offsets - true_offsets)
+    errors = np.array(errors)
+    print(f"{ols(errors) = }")
+    plt.figure()
+    plt.hist2d(errors[:, 0], errors[:, 1], bins=50, range=get_range(n_samp))
+    plt.savefig(
+        f"/Users/veggente/Data/research/flowering/soybean-rna-seq-data/mleroc/mle-error-sl4-n{n_samp}-m{n_sim}.pdf"  # pylint: disable=line-too-long
+    )
+
+
+def get_range(n_samp: int) -> np.ndarray:
+    """Gets range for asymptotic convergence."""
+    left = -0.005 * 50 / 32
+    right = 0.005 * 50 / 32
+    top = 0.01 * 48.5 / 37
+    bottom = -0.01 * 50.5 / 37
+    return np.array([[left, right], [bottom, top]]) / np.sqrt(n_samp / 10000)
+
+
+def ols(data: np.ndarray) -> tuple[np.ndarray, float]:
+    """Ordinary least squares.
+
+    Args:
+        data: n-by-2 matrix with x in the first column and y in the second column.
+
+    Returns:
+        OLS slope and intercept, and OLS slope without intercept.
+    """
+    x_bar = np.mean(data[:, 0])
+    y_bar = np.mean(data[:, 1])
+    xy_bar = np.mean(data[:, 0] * data[:, 1])
+    x2_bar = np.mean(data[:, 0] ** 2)
+    return np.array([xy_bar - x_bar * y_bar, x2_bar * y_bar - xy_bar * x_bar]) / (x2_bar - x_bar ** 2), xy_bar / x2_bar
+
+
 if __name__ == "__main__":
     plt.style.use("ggplot")
     plt.rcParams.update({"font.size": 20, "pdf.fonttype": 42})
     plt.rcParams.update({"font.size": 20})
-    isit_example()
+    mle_convergence_4_val()

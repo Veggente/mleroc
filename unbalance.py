@@ -1056,7 +1056,11 @@ def ols(data: np.ndarray) -> tuple[np.ndarray, float]:
     y_bar = np.mean(data[:, 1])
     xy_bar = np.mean(data[:, 0] * data[:, 1])
     x2_bar = np.mean(data[:, 0] ** 2)
-    return np.array([xy_bar - x_bar * y_bar, x2_bar * y_bar - xy_bar * x_bar]) / (x2_bar - x_bar ** 2), xy_bar / x2_bar
+    return (
+        np.array([xy_bar - x_bar * y_bar, x2_bar * y_bar - xy_bar * x_bar])
+        / (x2_bar - x_bar**2),
+        xy_bar / x2_bar,
+    )
 
 
 if __name__ == "__main__":

@@ -19,7 +19,9 @@ PATH = "/Users/veggente/Data/research/flowering/soybean-rna-seq-data/mleroc/"
 class ROC:
     """Receiver operating characteristic curve.
 
-    Linear interpolation is done for two adjacent points.
+    Linear interpolation is done for two adjacent points.  The ROC is
+    not necessarily optimal, i.e., it may not be concave.  Note that
+    some methods assume concavity.
 
     Attributes:
         pfa: np.ndarray
@@ -38,7 +40,7 @@ class ROC:
     pdet: np.ndarray
     name: str
 
-    def plot(self):
+    def plot(self, name: str = ""):
         """Plots ROC curve."""
         plt.figure()
         plt.plot(
@@ -48,7 +50,10 @@ class ROC:
         plt.xlabel("prob. of false alarm")
         plt.ylabel("prob. of detection")
         plt.tight_layout()
-        plt.show()
+        if name:
+            plt.savefig(name)
+        else:
+            plt.show()
 
     def get_pdet(self, pfa: float) -> float:
         """Gets pdet by interpolation."""
@@ -84,27 +89,6 @@ class ROC:
             / (self.pfa[left + 1] - self.pfa[left])
             * self.pfa[left]
         )
-
-    @classmethod
-    def from_slopes(cls, slopes: list[float], null_prob: list[float]) -> "ROC":
-        """Generates ROC from slopes.
-
-        Args:
-            slopes: Increasing slopes.
-            null_prob: Probability masses under null hypothesis.
-
-        Returns:
-            An ROC object.
-        """
-        pfa, pdet = [1], [1]
-        for i, slo in enumerate(slopes):
-            pfa.append(pfa[-1] - null_prob[i])
-            pdet.append(pdet[-1] - null_prob[i] * slo)
-            if pdet[-1] < pfa[-1]:
-                raise ValueError("Slopes and probabilities do not form a valid ROC.")
-        pfa.append(0)
-        pdet.append(0)
-        return cls(pfa[::-1], pdet[::-1], "true")
 
     def gen_mix_like(
         self, alpha: float, size: int, random_state: np.random.Generator
@@ -975,7 +959,7 @@ def mle_convergence():
     """MLE convergence study with general slopes."""
     slope = [0.3, 1]
     p_null = [0.5, 0.3]
-    true_roc = ROC.from_slopes(slope, p_null)
+    true_roc = OROC(slope, p_null, "true")
     alpha = 0.3
     n_samp = 1000
     rng = np.random.default_rng()
@@ -1013,7 +997,7 @@ def mle_convergence_4_val():
     """MLE convergence study with 4 slopes."""
     slope = [0.1, 0.4, 1]
     p_null = [0.4, 0.3, 0.2]
-    true_roc = ROC.from_slopes(slope, p_null)
+    true_roc = OROC(slope, p_null, "true")
     alpha = 0.3
     n_samp = 10000
     rng = np.random.default_rng()
@@ -1063,8 +1047,116 @@ def ols(data: np.ndarray) -> tuple[np.ndarray, float]:
     )
 
 
+def lipschitz():
+    """Lipschitz constant study for MLE."""
+    rng = np.random.default_rng()
+    n_sim = 100000
+    for i in range(n_sim):
+        slope = [rng.random()]
+        slope.append(slope[0] + (2 - slope[0]) * rng.random())
+        p_null = [get_p_null(slope, rng) for _ in range(2)]
+        alpha = rng.random(2)
+        oroc = [OROC(slope, p_null[i], f"true{i}") for i in range(2)]
+        levy_dist = oroc[0].levy(oroc[1])
+        sup_norm = oroc[0].sup_norm(oroc[1], alpha)
+        if levy_dist > 2.5 * sup_norm:
+            print(f"An extreme counterexample is found at {i} / {n_sim}:")
+            print(f"{slope = }, {p_null = }, {alpha = }, {levy_dist = }, {sup_norm = }")
+            oroc[0].plot("oroc5-1.pdf")
+            oroc[1].plot("oroc5-2.pdf")
+            return
+    print("No counterexamples are found.")
+    return
+
+
+def get_p_null(slope: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Gets p_null from slope.
+
+    Assumes there are only two slope values and the first slope is
+    less than 1, and the second slope is greater than the first slope.
+    """
+    uni = rng.random(len(slope) - 1)
+    remain_fa = remain_det = 1
+    pmf = []
+    for i, x in enumerate(uni):
+        lower = max(
+            0, (slope[i + 1] * remain_fa - remain_det) / (slope[i + 1] - slope[i])
+        )
+        pmf.append(lower + x * (remain_fa - lower))
+        remain_fa -= pmf[-1]
+        remain_det -= pmf[-1] * slope[i]
+    pmf.append(remain_fa)
+    return np.array(pmf)
+
+
+class OROC(ROC):
+    """Optimal ROC curve.
+
+    Attributes:
+        slopes: Increasing slopes of the ROC curve.
+        null_prob: Probability masses under the null hypothesis.
+    """
+
+    def __init__(self, slopes: list[float], null_prob: list[float], name: str):
+        """Initializes the OROC curve.
+
+        Assumes the inner product of slopes and null_prob is less than
+        or equal to 1.
+
+        Args:
+            slopes: Increasing slopes of the ROC curve.  Exludes
+                infinity.
+            null_prob: Probability masses under the null hypothesis.
+                Sums to 1.
+        """
+        self.slopes = slopes
+        self.null_prob = null_prob
+        pfa, pdet = [1], [1]
+        for i, slo in enumerate(slopes):
+            pfa.append(pfa[-1] - null_prob[i])
+            pdet.append(pdet[-1] - null_prob[i] * slo)
+            if pdet[-1] < pfa[-1] - 1e-6:
+                print(f"{pdet = }, {pfa = }")
+                raise ValueError("Slopes and probabilities do not form a valid ROC.")
+        if pdet[-1]:
+            pfa.append(0)
+            pdet.append(0)
+        super().__init__(pfa[::-1], pdet[::-1], name)
+
+    def levy(self, other: "OROC") -> float:
+        """Levy distance between two ROC curves.
+
+        Assumes both OROC curves have the same set of slopes.  Note
+        the last intercept does not need to be checked.
+        """
+        max_dist = 0
+        for i, slope_i in enumerate(self.slopes[1:], start=1):
+            intercept = 0
+            for j, slope_j in enumerate(self.slopes[:i]):
+                intercept += (slope_i - slope_j) * (
+                    self.null_prob[j] - other.null_prob[j]
+                )
+            max_dist = max(max_dist, abs(intercept) / (slope_i + 1))
+        return max_dist
+
+    def sup_norm(self, other: "OROC", alpha: np.ndarray) -> float:
+        """Supremum norm between two ROC curves.
+
+        Assumes both OROC curves have the same set of slopes.
+        """
+        max_dist = 0
+        for i in range(1, len(self.slopes) + 1):
+            diff = 0
+            for j, slope_j in enumerate(self.slopes[:i]):
+                diff += (1 - alpha[0] + alpha[0] * slope_j) * self.null_prob[j] - (
+                    1 - alpha[1] + alpha[1] * slope_j
+                ) * other.null_prob[j]
+            max_dist = max(max_dist, abs(diff))
+        return max_dist
+
+
 if __name__ == "__main__":
     plt.style.use("ggplot")
     plt.rcParams.update({"font.size": 20, "pdf.fonttype": 42})
     plt.rcParams.update({"font.size": 20})
-    mle_convergence_4_val()
+    lipschitz()

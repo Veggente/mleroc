@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass
 from typing import Optional, Union
 import bisect
+import itertools
 import numpy as np
 from scipy.optimize import fsolve
 from scipy.stats._distn_infrastructure import rv_sample
@@ -1155,8 +1156,39 @@ class OROC(ROC):
         return max_dist
 
 
+def counterexample():
+    """Counterexample for Lipschitz continuity."""
+    slopes = [0.5, 1.7]
+    p_null = [[0.6, 0.4], [0.65, 0.35]]
+    oroc1 = OROC(slopes, p_null[0], "oroc1")
+    oroc2 = OROC(slopes, p_null[1], "oroc2")
+    plt.figure()
+    plt.plot(oroc1.pfa, oroc1.pdet, label="oroc1")
+    plt.plot(oroc2.pfa, oroc2.pdet, label="oroc2")
+    plt.legend()
+    plt.savefig("oroc.pdf")
+    print(f"{oroc1.levy(oroc2) = }")
+    sup_norm = []
+    for alpha in itertools.product(np.linspace(0, 1, 1001), repeat=2):
+        sup_norm.append(oroc1.sup_norm(oroc2, alpha))
+    loc = np.argmin(sup_norm)
+    print(f"{min(sup_norm) = } at ({(loc // 1001) / 1000}, {(loc % 1001) / 1000})")
+    plt.figure()
+    image = plt.imshow(
+        np.array(sup_norm).reshape(1001, 1001).T,
+        origin="lower",
+        cmap=plt.cm.RdBu,
+        extent=[0, 1, 0, 1],
+    )
+    plt.colorbar(image)
+    plt.xlabel(r"$\lambda$")
+    plt.ylabel(r"$\lambda'$")
+    plt.tight_layout()
+    plt.savefig("sup_norm.pdf")
+
+
 if __name__ == "__main__":
     plt.style.use("ggplot")
     plt.rcParams.update({"font.size": 20, "pdf.fonttype": 42})
     plt.rcParams.update({"font.size": 20})
-    lipschitz()
+    counterexample()

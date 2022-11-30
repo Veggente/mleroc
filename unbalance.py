@@ -11,7 +11,7 @@ from scipy.stats._distn_infrastructure import rv_sample
 from scipy.stats import norm
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-import bhatta_bound
+from bhatta_bound import bhatta_bound
 
 PATH = "/Users/veggente/Data/research/flowering/soybean-rna-seq-data/mleroc/"
 

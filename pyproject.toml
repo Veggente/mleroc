@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "mleroc"
+version = "0.1.0"
+description = "mleroc (pronounced melee rock) is an ML estimator of optimal ROC curves."
+authors = ["Xiaohan Kang <veggente@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "~3.11"
+matplotlib = "^3.7.1"
+numpy = "^1.24.3"
+scipy = "^1.10.1"
+tqdm = "^4.65.0"
+conda-lock = "^2.0.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

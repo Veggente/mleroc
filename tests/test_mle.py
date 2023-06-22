@@ -2,7 +2,7 @@
 import unittest
 import numpy as np
 import unbalance  # pylint: disable=import-error
-import bhatta_bound  # pylint: disable=import-error
+from bhatta_bound import bhatta_bound  # pylint: disable=import-error
 
 
 class TestMLE(unittest.TestCase):
@@ -45,6 +45,24 @@ class TestMLE(unittest.TestCase):
         oroc1 = unbalance.OROC(slope, p_null[0], "oroc1")
         oroc2 = unbalance.OROC(slope, p_null[1], "oroc2")
         self.assertAlmostEqual(oroc1.sup_norm(oroc2, alpha), 0.016839500000000063)
+
+    def test_amle(self):
+        """Tests AMLE."""
+        val = np.array([0.5, 1])
+        count = np.array([1, 1, 1, 0])
+        mix = 1 / 2
+        new_val, pmf0 = unbalance.amle(val, count, mix)
+        np.testing.assert_array_almost_equal(pmf0, [2 / 3, 1 / 3])
+        self.assertAlmostEqual(new_val, 1 / 2)
+
+    def test_amle_2(self):
+        """Tests AMLE."""
+        val = np.array([0.5, 2])
+        count = np.array([0, 1, 2, 0])
+        mix = 0
+        new_val, pmf0 = unbalance.amle(val, count, mix)
+        np.testing.assert_array_almost_equal(new_val, [1 / 2, 5 / 4])
+        np.testing.assert_array_almost_equal(pmf0, [0, 1 / 3, 2 / 3])
 
 
 class TestBCBound(unittest.TestCase):

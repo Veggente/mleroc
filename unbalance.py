@@ -12,8 +12,7 @@ from scipy.stats import norm
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from bhatta_bound import bhatta_bound
-
-PATH = "/Users/veggente/Data/research/flowering/soybean-rna-seq-data/mleroc/"
+from config import PATH
 
 
 @dataclass
@@ -384,7 +383,7 @@ def mle(val: np.ndarray, count: np.ndarray) -> tuple[np.ndarray, float]:
             zero.
 
     Returns:
-        pmf of F_0 and the Lagrangian dual variable lambda.
+        Pmf of F_0 and the Lagrangian dual variable lambda.
     """
 
     def dual_for_fsolve(
@@ -1177,7 +1176,7 @@ def counterexample():
     image = plt.imshow(
         np.array(sup_norm).reshape(1001, 1001).T,
         origin="lower",
-        cmap=plt.cm.RdBu,
+        cmap=plt.cm.RdBu,  # pylint: disable=no-member
         extent=[0, 1, 0, 1],
     )
     plt.colorbar(image)
@@ -1187,8 +1186,52 @@ def counterexample():
     plt.savefig("sup_norm.pdf")
 
 
+def amle(
+    val: np.ndarray, count: np.ndarray, mix: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Approximate MLE anchored at upper-right corner.
+
+    Args:
+        val: Likelihood values (excluding zero and infinity).  Must be
+            strictly increasing.
+        count: Counts for likelihood values (including zero and
+            infinity).  Only the first and the last counts can be
+            zero.
+        mix: Mixing parameter as the fraction of H1 samples.  Must be
+            in [0, 1[.
+
+    Returns:
+        Values and pmf of F_0 after truncation or concavifying.
+        Values are positive, finite, and strictly increasing, and pmf
+        includes the mass for 0 at the beginning.
+    """
+    pmf = count / sum(count)
+    ex_val = np.insert(val, 0, 0)
+    pmf0 = []
+    f0_val = []
+    f0_cumu = f1_cumu = 0
+    for i, slope in enumerate(ex_val):
+        shingle = [pmf[i] / (1 - mix + mix * slope)]
+        shingle.append(shingle[0] * slope)
+        if slope * (1 - f0_cumu) > 1 - f1_cumu:
+            pmf0.append(1 - f0_cumu)
+            f0_val.append((1 - f1_cumu) / (1 - f0_cumu))
+            break
+        if f0_cumu + shingle[0] >= 1:
+            pmf0.append(1 - f0_cumu)
+            f0_val.append(slope)
+            break
+        pmf0.append(shingle[0])
+        f0_val.append(slope)
+        f0_cumu += shingle[0]
+        f1_cumu += shingle[1]
+    return np.array(f0_val[1:]), np.array(pmf0)
+
+
 if __name__ == "__main__":
     plt.style.use("ggplot")
     plt.rcParams.update({"font.size": 20, "pdf.fonttype": 42})
     plt.rcParams.update({"font.size": 20})
-    counterexample()
+    gen_roc_examples()
+    calc_avg_levy()
+    plot_avg_levy()

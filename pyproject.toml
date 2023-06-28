@@ -13,6 +13,7 @@ numpy = "^1.24.3"
 scipy = "^1.10.1"
 tqdm = "^4.65.0"
 conda-lock = "^2.0.0"
+black = "^23.3.0"
 
 
 [build-system]

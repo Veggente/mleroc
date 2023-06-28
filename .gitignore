@@ -1,5 +1,6 @@
 /__pycache__/
 *.lprof
 *__pycache__
-/.DS_Store
+*.DS_Store
 *.icloud
+/mleroc/config.py

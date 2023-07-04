@@ -4,8 +4,8 @@ import numpy as np
 from scipy.stats import norm
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-from . import estimators, config
-from .roc import get_roc
+from mleroc import estimators, config
+from mleroc.roc import get_roc
 
 
 class GaussSim:
@@ -65,7 +65,11 @@ class GaussSim:
         else:
             amle_pmf0 = amle_pmf0[1:]
         amle_est = get_roc(amle_val, amle_pmf0, self.tol)
+        amle_lin_est = estimators.amle_lin(
+            val, count, n_samp[1] / sum(n_samp), n_samp[1] / sum(n_samp)
+        )
         dist_alt.append(self.levy(amle_est))
+        dist_alt.append(self.levy(amle_lin_est))
         line_width = 3
         if suffix:
             plt.figure()
@@ -81,6 +85,13 @@ class GaussSim:
             )
             plt.plot(
                 amle_est[0, :], amle_est[1, :], "-.", label="AMLE", linewidth=line_width
+            )
+            plt.plot(
+                amle_lin_est[0, :],
+                amle_lin_est[1, :],
+                "--",
+                label="AMLE-Lin",
+                linewidth=line_width,
             )
         if n_samp[0] and n_samp[1] and not self._mle_only:
             n_det = estimators.split(null, alt)
@@ -176,7 +187,7 @@ class GaussSim:
                 dist = np.mean(dist_full, axis=0)
         else:
             rng = np.random.default_rng(rng)
-            dist = np.zeros(4)
+            dist = np.zeros(5)
             dist_full = []
             for _ in tqdm(range(n_sims)):
                 new_dist = self.levy_single(n_samp, rng)
@@ -212,6 +223,7 @@ def calc_avg_levy():
     print(gauss.levy_multiple([10, 100], 500, 3))
     print(gauss.levy_multiple([10, 1000], 500, 4))
     print(gauss.levy_multiple([100, 1000], 500, 5))
+    print(gauss.levy_multiple([100, 10], 500, 7))
     gauss = GaussSim(mle_only=True)
     print(gauss.levy_multiple([100, 0], 500, 6))
 
@@ -225,13 +237,15 @@ def gen_roc_examples():
     print(gauss.levy_single([10, 100], 3, "3"))
     print(gauss.levy_single([10, 1000], 4, "4"))
     print(gauss.levy_single([100, 1000], 5, "5"))
+    print(gauss.levy_single([100, 10], 7, "7"))
     gauss = GaussSim(mle_only=True)
     print(gauss.levy_single([100, 0], 6, "6"))
 
 
 def plot_avg_levy():
     """Plots average Levy metrics."""
-    samples = [[10, 10], [100, 100], [1000, 1000], [10, 100], [10, 1000], [100, 1000]]
+    # samples = [[10, 10], [100, 100], [1000, 1000], [10, 100], [10, 1000], [100, 1000]]
+    samples = [[100, 10]]
     levy_all = []
     for n_samps in samples:
         with open(
@@ -246,14 +260,14 @@ def plot_avg_levy():
     for i, this_avg in enumerate(avg):
         plt.figure()
         plt.bar(
-            list(range(4)),
+            list(range(5)),
             this_avg,
             yerr=error[i],
-            color=["C1", "C2", "C3", "C4"],
+            color=["C1", "C2", "C3", "C4", "C5"],
             capsize=10,
         )
         plt.ylim(0, 0.16)
-        plt.xticks(list(range(4)), ["MLE", "AMLE", "E", "CE"])
+        plt.xticks(list(range(5)), ["MLE", "AMLE", "AMLE-Lin", "E", "CE"])
         plt.xlabel("estimator")
         plt.ylabel("average Lévy distance")
         plt.tight_layout()

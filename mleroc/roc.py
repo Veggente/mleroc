@@ -1,9 +1,11 @@
 """Receiver operating characteristic curve."""
-from dataclasses import dataclass
+
 import bisect
 import math
-import numpy as np
+from dataclasses import dataclass
+
 import matplotlib.pyplot as plt
+import numpy as np
 from scipy.stats._distn_infrastructure import rv_sample
 
 

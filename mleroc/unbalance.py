@@ -1,10 +1,14 @@
 """ROC estimation with unbalanced samples."""
+
 import json
+
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import norm
-import matplotlib.pyplot as plt
 from tqdm import tqdm
-from mleroc import estimators, config
+
+from mleroc import config
+from mleroc import estimators
 from mleroc.roc import get_roc
 
 

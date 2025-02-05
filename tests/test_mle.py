@@ -1,7 +1,11 @@
 """Tests eroc."""
+
 import unittest
+
 import numpy as np
-from mleroc import unbalance, estimators
+
+from mleroc import estimators
+from mleroc import unbalance
 
 
 class TestMLE(unittest.TestCase):

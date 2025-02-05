@@ -1,7 +1,10 @@
 """Estimators for the ROC curve."""
+
 import numpy as np
 from scipy.optimize import fsolve
-from .roc import ROC, get_roc
+
+from .roc import ROC
+from .roc import get_roc
 
 
 def mle(val: np.ndarray, count: np.ndarray) -> tuple[np.ndarray, float]:

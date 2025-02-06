@@ -149,7 +149,7 @@ class ROCSet:  # pylint: disable=too-few-public-methods
 def get_roc(val: np.ndarray, pmf: np.ndarray, tol: float) -> np.ndarray:
     """Gets ROC from F0 pmf.
 
-    F0 is assumed to be valid; i.e., sum_r (r * pmf(r)) >= 1.
+    F0 is assumed to be valid; i.e., sum_r (r * pmf(r)) <= 1.
 
     Args:
         val: Values of pmf.  Must be all nonnegative.

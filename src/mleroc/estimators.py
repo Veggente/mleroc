@@ -1,5 +1,7 @@
 """Estimators for the ROC curve."""
 
+from collections import Counter
+
 import numpy as np
 from scipy.optimize import fsolve
 
@@ -351,3 +353,38 @@ def concavify(curve: np.ndarray) -> np.ndarray:
 def flip(curve: np.ndarray) -> np.ndarray:
     """Flips a curve."""
     return np.array([[1], [1]]) - curve[::-1, ::-1]
+
+
+def estimate_likelihood_ratios(
+    pos: np.ndarray, neg: np.ndarray, bin_sizes: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Estimates the likelihood ratios from positive and negative samples."""
+    pos = pos.copy()
+    neg = neg.copy()
+    for i, size in enumerate(bin_sizes):
+        pos[:, i] = pos[:, i] // size
+        neg[:, i] = neg[:, i] // size
+    pos = pos.astype(int)
+    neg = neg.astype(int)
+    counters = [Counter(tuple(row) for row in neg), Counter(tuple(row) for row in pos)]
+    val = []
+    count = []
+    count_inf = 0
+    count_0 = 0
+    for key in counters[0].keys():
+        if key in counters[1]:
+            val.append(
+                counters[1][key]
+                / counters[1].total()
+                / counters[0][key]
+                * counters[0].total()
+            )
+            count.append(counters[0][key] + counters[1][key])
+        else:
+            count_0 += counters[0][key]
+    for key in counters[1].keys():
+        if key not in counters[0]:
+            count_inf += counters[1][key]
+    count.insert(0, count_0)
+    count.append(count_inf)
+    return np.array(val), np.array(count)

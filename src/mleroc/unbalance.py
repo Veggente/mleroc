@@ -184,7 +184,7 @@ class GaussSim:
         Returns:
             Average Levy metrics.
         """
-        filename = f"{config.PATH}levy-all-{n_samp[0]}-{n_samp[1]}-n{n_sims}-mo{self._mle_only}-mu{self._mean_diff}.json"  # pylint: disable=line-too-long
+        filename = f"{config.PATH}levy-all-{n_samp[0]}-{n_samp[1]}-n{n_sims}-mo{self._mle_only}-mu{self._mean_diff}.json"  # noqa: E501
         if from_file:
             with open(filename, encoding="utf-8") as f:
                 dist_full = json.load(f)

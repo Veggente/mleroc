@@ -116,10 +116,10 @@ def eroc(n_det: list[int], concav: bool) -> np.ndarray:
     return np.array(points[::-1]).T
 
 
-def split(null: np.ndarray, alt: np.ndarray) -> list[int]:
-    """Split estimator for ROC.
+def tp_at_fp(null: np.ndarray, alt: np.ndarray) -> list[int]:
+    """True positive count at false positive count.
 
-    Assumes all values are distinct.
+    This is essentially an unnormalized empirical ROC curve.
 
     Args:
         null: Likelihood ratios for null hypothesis.

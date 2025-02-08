@@ -69,10 +69,14 @@ class GaussSim:
         else:
             amle_pmf0 = amle_pmf0[1:]
         amle_est = get_roc(amle_val, amle_pmf0, self.tol)
+        split_est = estimators.amle_lin(
+            val, count, n_samp[1] / sum(n_samp), np.round(n_samp[1] / sum(n_samp))
+        )
         amle_lin_est = estimators.amle_lin(
             val, count, n_samp[1] / sum(n_samp), n_samp[1] / sum(n_samp)
         )
         dist_alt.append(self.levy(amle_est))
+        dist_alt.append(self.levy(split_est))
         dist_alt.append(self.levy(amle_lin_est))
         line_width = 3
         if suffix:
@@ -91,14 +95,21 @@ class GaussSim:
                 amle_est[0, :], amle_est[1, :], "-.", label="AMLE", linewidth=line_width
             )
             plt.plot(
+                split_est[0, :],
+                split_est[1, :],
+                "--",
+                label="Split",
+                linewidth=line_width,
+            )
+            plt.plot(
                 amle_lin_est[0, :],
                 amle_lin_est[1, :],
                 "--",
-                label="AMLE-Lin",
+                label="AMLE-lin",
                 linewidth=line_width,
             )
         if n_samp[0] and n_samp[1] and not self._mle_only:
-            n_det = estimators.split(null, alt)
+            n_det = estimators.tp_at_fp(null, alt)
             s_roc = estimators.eroc(n_det, False)
             cs_roc = estimators.eroc(n_det, True)
             if suffix:
@@ -191,7 +202,7 @@ class GaussSim:
                 dist = np.mean(dist_full, axis=0)
         else:
             rng = np.random.default_rng(rng)
-            dist = np.zeros(5)
+            dist = np.zeros(6)
             dist_full = []
             for _ in tqdm(range(n_sims)):
                 new_dist = self.levy_single(n_samp, rng)

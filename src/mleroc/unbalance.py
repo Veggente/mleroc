@@ -1,6 +1,7 @@
 """ROC estimation with unbalanced samples."""
 
 import json
+from dataclasses import dataclass
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,17 +16,15 @@ from mleroc.roc import get_roc
 class GaussSim:
     """Gaussian simulations."""
 
-    def __init__(self, digits: int = 4, mean_diff: float = 1, mle_only: bool = False):
+    def __init__(self, digits: int = 4, mean_diff: float = 1):
         """Initialization.
 
         Args:
             digits: Number of digits for tolerance.
             mean_diff: Mean difference of hypotheses.
-            mle_only: Does MLE only.
         """
         self._digits = digits
         self._mean_diff = mean_diff
-        self._mle_only = mle_only
 
     @property
     def tol(self):
@@ -108,7 +107,7 @@ class GaussSim:
                 label="AMLE-lin",
                 linewidth=line_width,
             )
-        if n_samp[0] and n_samp[1] and not self._mle_only:
+        if n_samp[0] and n_samp[1]:
             n_det = estimators.tp_at_fp(null, alt)
             s_roc = estimators.eroc(n_det, False)
             cs_roc = estimators.eroc(n_det, True)
@@ -181,6 +180,7 @@ class GaussSim:
         self,
         n_samp: list[int],
         n_sims: int,
+        *,
         rng: np.random.Generator | int | None = None,
         from_file: bool = False,
     ) -> np.ndarray:
@@ -195,7 +195,7 @@ class GaussSim:
         Returns:
             Average Levy metrics.
         """
-        filename = f"{config.PATH}levy-all-{n_samp[0]}-{n_samp[1]}-n{n_sims}-mo{self._mle_only}-mu{self._mean_diff}.json"  # noqa: E501
+        filename = f"{config.PATH}levy-all-{n_samp[0]}-{n_samp[1]}-n{n_sims}-mu{self._mean_diff}.json"  # noqa: E501
         if from_file:
             with open(filename, encoding="utf-8") as f:
                 dist_full = json.load(f)
@@ -229,18 +229,27 @@ class GaussSim:
         return 1 - norm.cdf(norm.ppf(1 - pfa) - self._mean_diff)
 
 
-def calc_avg_levy():
+@dataclass(kw_only=True)
+class SamplePair:
+    pos: int
+    neg: int
+
+    def get_data_path(self, total: int) -> str:
+        return f"{config.PATH}levy-all-{self.neg}-{self.pos}-n{total}-mu1.json"
+
+    def get_output_path(self) -> str:
+        return f"{config.PATH}levy-{self.neg}-{self.pos}.pdf"
+
+    def mle_only(self) -> bool:
+        """Only run MLE based estimators for single-class samples."""
+        return not self.neg or not self.pos
+
+
+def calc_avg_levy(samples: list[SamplePair], n_sims: int):
     """Calculates average Levy metrics."""
     gauss = GaussSim()
-    print(gauss.levy_multiple([10, 10], 500, 0))
-    print(gauss.levy_multiple([100, 100], 500, 1))
-    print(gauss.levy_multiple([1000, 1000], 500, 2))
-    print(gauss.levy_multiple([10, 100], 500, 3))
-    print(gauss.levy_multiple([10, 1000], 500, 4))
-    print(gauss.levy_multiple([100, 1000], 500, 5))
-    print(gauss.levy_multiple([100, 10], 500, 7))
-    gauss = GaussSim(mle_only=True)
-    print(gauss.levy_multiple([100, 0], 500, 6))
+    for sample_pair in samples:
+        print(gauss.levy_multiple([sample_pair.neg, sample_pair.pos], n_sims))
 
 
 def gen_roc_examples():
@@ -257,36 +266,33 @@ def gen_roc_examples():
     print(gauss.levy_single([100, 0], 6, "6"))
 
 
-def plot_avg_levy():
+def plot_avg_levy(samples: list[SamplePair], estimators: dict[int, str], n_sims: int):
     """Plots average Levy metrics."""
-    # samples = [[10, 10], [100, 100], [1000, 1000], [10, 100], [10, 1000], [100, 1000]]
-    samples = [[100, 10]]
     levy_all = []
-    for n_samps in samples:
-        with open(
-            f"{config.PATH}levy-all-{n_samps[0]}-{n_samps[1]}-n500-mo{False}-mu1.json",
-            encoding="utf-8",
-        ) as f:
+    for sample_pair in samples:
+        with open(sample_pair.get_data_path(n_sims), encoding="utf-8") as f:
             levy_all.append(json.load(f))
-    avg = np.array([np.mean(data, axis=0) for data in levy_all])
+    sorted_keys = sorted(estimators.keys())
+    avg = np.array(levy_all)[:, :, sorted_keys].mean(axis=1)
     error = np.array(
         [np.std(data, axis=0, ddof=1) / np.sqrt(len(data)) for data in levy_all]
     )
     for i, this_avg in enumerate(avg):
+        x_pos = list(range(len(estimators)))
         plt.figure()
         plt.bar(
-            list(range(5)),
+            x_pos,
             this_avg,
-            yerr=error[i],
-            color=["C1", "C2", "C3", "C4", "C5"],
+            yerr=error[i][sorted_keys],
+            color=[f"C{idx}" for idx in x_pos],
             capsize=10,
         )
         plt.ylim(0, 0.16)
-        plt.xticks(list(range(5)), ["MLE", "AMLE", "AMLE-Lin", "E", "CE"])
+        plt.xticks(x_pos, [estimators[idx] for idx in sorted_keys])
         plt.xlabel("estimator")
         plt.ylabel("average Lévy distance")
         plt.tight_layout()
-        plt.savefig(f"{config.PATH}levy-{samples[i][0]}-{samples[i][1]}.pdf")
+        plt.savefig(samples[i].get_output_path())
 
 
 def plot_avg_levy_mle_only():
@@ -311,10 +317,15 @@ def plot_avg_levy_mle_only():
     plt.savefig(f"{config.PATH}levy-0-100.pdf")
 
 
-if __name__ == "__main__":
+def main():
     plt.style.use("ggplot")
     plt.rcParams.update({"font.size": 20, "pdf.fonttype": 42})
     plt.rcParams.update({"font.size": 20})
-    gen_roc_examples()
-    calc_avg_levy()
-    plot_avg_levy()
+    samples = [SamplePair(neg=10, pos=10), SamplePair(neg=100, pos=100)]
+    n_sims = 10
+    calc_avg_levy(samples, n_sims)
+    plot_avg_levy(samples, {0: "MLE", 2: "Split", 3: "Fused"}, n_sims)
+
+
+if __name__ == "__main__":
+    main()

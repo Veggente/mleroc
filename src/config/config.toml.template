@@ -1,0 +1,327 @@
+[paths]
+plots_dir = "./plots/"
+data_dir = "./data/"
+
+[average-levy]
+n_sims = 10
+[[average-levy.sample_pairs]]
+neg = 10
+pos = 10
+example_rng = 0
+estimators_in_example = [ "MLE", "E", "CE",]
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "MLE"
+color = 1
+index = 0
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "Split"
+color = 2
+index = 2
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "Fused"
+color = 3
+index = 3
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "E"
+color = 4
+index = 4
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "CE"
+color = 5
+index = 5
+
+
+[[average-levy.sample_pairs]]
+neg = 100
+pos = 100
+example_rng = 1
+estimators_in_example = [ "MLE", "E", "CE",]
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "MLE"
+color = 1
+index = 0
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "Split"
+color = 2
+index = 2
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "Fused"
+color = 3
+index = 3
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "E"
+color = 4
+index = 4
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "CE"
+color = 5
+index = 5
+
+
+[[average-levy.sample_pairs]]
+neg = 1000
+pos = 1000
+example_rng = 2
+estimators_in_example = [ "MLE", "E", "CE",]
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "MLE"
+color = 1
+index = 0
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "Split"
+color = 2
+index = 2
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "Fused"
+color = 3
+index = 3
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "E"
+color = 4
+index = 4
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "CE"
+color = 5
+index = 5
+
+
+[[average-levy.sample_pairs]]
+neg = 10
+pos = 100
+example_rng = 3
+estimators_in_example = [ "MLE", "E", "CE",]
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "MLE"
+color = 1
+index = 0
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "Split"
+color = 2
+index = 2
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "Fused"
+color = 3
+index = 3
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "E"
+color = 4
+index = 4
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "CE"
+color = 5
+index = 5
+
+
+[[average-levy.sample_pairs]]
+neg = 10
+pos = 1000
+example_rng = 4
+estimators_in_example = [ "MLE", "E", "CE",]
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "MLE"
+color = 1
+index = 0
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "Split"
+color = 2
+index = 2
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "Fused"
+color = 3
+index = 3
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "E"
+color = 4
+index = 4
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "CE"
+color = 5
+index = 5
+
+
+[[average-levy.sample_pairs]]
+neg = 100
+pos = 1000
+example_rng = 5
+estimators_in_example = [ "MLE", "E", "CE",]
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "MLE"
+color = 1
+index = 0
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "Split"
+color = 2
+index = 2
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "Fused"
+color = 3
+index = 3
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "E"
+color = 4
+index = 4
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "CE"
+color = 5
+index = 5
+
+
+[[average-levy.sample_pairs]]
+neg = 100
+pos = 0
+example_rng = 6
+estimators_in_example = [ "MLE",]
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "MLE"
+color = 1
+index = 0
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "Split"
+color = 2
+index = 2
+
+[[average-levy.sample_pairs.estimators_in_avg_levy]]
+name = "Fused"
+color = 3
+index = 3
+
+
+[tail-levy]
+n_levy_samples = 100
+alpha = [ 0.1, 0.5,]
+[[tail-levy.estimators]]
+name = "MLE"
+color = 1
+index = 0
+style = "-x"
+
+[[tail-levy.estimators]]
+name = "Split"
+color = 2
+index = 2
+style = ":v"
+
+[[tail-levy.estimators]]
+name = "Fused"
+color = 3
+index = 3
+style = "-+"
+
+[[tail-levy.estimators]]
+name = "E"
+color = 4
+index = 4
+style = "--o"
+
+[[tail-levy.estimators]]
+name = "CE"
+color = 5
+index = 5
+style = "-.^"
+
+[average-levy.vary_mu]
+[[average-levy.vary_mu.estimators]]
+name = "MLE"
+color = 1
+index = 0
+style = "-x"
+
+[[average-levy.vary_mu.estimators]]
+name = "Split"
+color = 2
+index = 2
+style = ":v"
+
+[[average-levy.vary_mu.estimators]]
+name = "Fused"
+color = 3
+index = 3
+style = "-+"
+
+[[average-levy.vary_mu.estimators]]
+name = "E"
+color = 4
+index = 4
+style = "--o"
+
+[[average-levy.vary_mu.estimators]]
+name = "CE"
+color = 5
+index = 5
+style = "-.^"
+
+[average-levy.vary_alpha]
+[[average-levy.vary_alpha.estimators]]
+name = "MLE"
+color = 1
+index = 0
+style = "-x"
+
+[average-levy.vary_alpha.estimators.comp]
+allow_no_neg = true
+allow_no_pos = true
+[[average-levy.vary_alpha.estimators]]
+name = "Split"
+color = 2
+index = 2
+style = ":v"
+
+[average-levy.vary_alpha.estimators.comp]
+allow_no_neg = false
+allow_no_pos = true
+[[average-levy.vary_alpha.estimators]]
+name = "Fused"
+color = 3
+index = 3
+style = "-+"
+
+[average-levy.vary_alpha.estimators.comp]
+allow_no_neg = false
+allow_no_pos = true
+[[average-levy.vary_alpha.estimators]]
+name = "E"
+color = 4
+index = 4
+style = "--o"
+
+[average-levy.vary_alpha.estimators.comp]
+allow_no_neg = false
+allow_no_pos = false
+[[average-levy.vary_alpha.estimators]]
+name = "CE"
+color = 5
+index = 5
+style = "-.^"
+
+[average-levy.vary_alpha.estimators.comp]
+allow_no_neg = false
+allow_no_pos = false
+
+[tail-levy.n_samples]
+gaussian = [ 20, 100,]
+gamma = [ 100,]

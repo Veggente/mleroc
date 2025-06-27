@@ -13,7 +13,7 @@ class TestMLE(unittest.TestCase):
 
     def test_levy(self):
         """Tests Lévy metric."""
-        sim = unbalance.GaussSim()
+        sim = unbalance.BHTSim()
         self.assertAlmostEqual(sim.levy(np.array([[0, 0], [1, 1]]).T), 0.19, 2)
         self.assertAlmostEqual(sim.levy(np.array([[0, 0], [1, 0], [1, 1]]).T), 0.7, 1)
         self.assertAlmostEqual(sim.levy(np.array([[0, 1], [1, 1]]).T), 0.3, 1)

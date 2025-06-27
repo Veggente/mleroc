@@ -75,5 +75,4 @@ Use the following scripts to reproduce the figures in the paper ["Maximum Likeli
   - Fig. 3–5, mean Levy distances of estimators from true ROC
 - `tail_estimation.py`:
   - Fig. 6.  Estimates of psi_n(gamma) vs. gamma for binormal gaussian
-- `tail_estimation2.py`:
   - Fig. 7.  Estimates of psi_n(gamma) vs. gamma for H0: exponential distribution

@@ -1,62 +1,149 @@
 """ROC estimation with unbalanced samples."""
 
 import json
+from dataclasses import dataclass
+from dataclasses import field
+from typing import Any
+from typing import Literal
+from typing import Protocol
 
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.stats import gamma
 from scipy.stats import norm
 from tqdm import tqdm
 
-from mleroc import config
+from config import config
 from mleroc import estimators
 from mleroc.roc import get_roc
 
+EstimatorName = Literal["MLE", "Split", "Fused", "E", "CE"]
 
-class GaussSim:
-    """Gaussian simulations."""
 
-    def __init__(self, digits: int = 4, mean_diff: float = 1, mle_only: bool = False):
+@dataclass(kw_only=True)
+class Composition:
+    allow_no_neg: bool = False
+    allow_no_pos: bool = False
+
+
+@dataclass(kw_only=True)
+class Estimator:
+    name: EstimatorName
+    color: int
+    index: int
+    style: str = "-"
+    comp: Composition = field(default_factory=Composition)
+
+
+@dataclass(kw_only=True)
+class LRSamples:
+    null: np.ndarray
+    alt: np.ndarray
+
+
+class Distribution(Protocol):
+    def generate_samples(
+        self, n_samp: list[int], rng: np.random.Generator | int | None = None
+    ) -> LRSamples:
+        """Generate samples from the distribution."""
+        ...
+
+    def roc(self, pfa: np.ndarray) -> np.ndarray:
+        """ROC curve."""
+        ...
+
+    def name(self) -> str:
+        """Name of the distribution."""
+        ...
+
+
+@dataclass(kw_only=True)
+class Gaussian:
+    mean_diff: float = 1
+
+    def generate_samples(
+        self, n_samp: list[int], rng: np.random.Generator | int | None = None
+    ) -> LRSamples:
+        rng = np.random.default_rng(rng)
+        null = np.exp(
+            rng.normal(size=n_samp[0]) * self.mean_diff - 1 / 2 * self.mean_diff**2
+        )
+        alt = np.exp(
+            rng.normal(loc=self.mean_diff, size=n_samp[1]) * self.mean_diff
+            - 1 / 2 * self.mean_diff**2
+        )
+        return LRSamples(null=null, alt=alt)
+
+    def roc(self, pfa: np.ndarray) -> np.ndarray:
+        return 1 - norm.cdf(norm.ppf(1 - pfa) - self.mean_diff)
+
+    def name(self) -> str:
+        return "gaussian"
+
+
+@dataclass(kw_only=True)
+class Gamma:
+
+    def generate_samples(
+        self, n_samp: list[int], rng: np.random.Generator | int | None = None
+    ) -> LRSamples:
+        rng = np.random.default_rng(rng)
+        null = rng.gamma(shape=1.0, scale=1.0, size=n_samp[0])
+        alt = rng.gamma(shape=2.0, scale=1.0, size=n_samp[1])
+        return LRSamples(null=null, alt=alt)
+
+    def roc(self, pfa: np.ndarray) -> np.ndarray:
+        return 1 - gamma.cdf(-np.log(pfa + 0.0000000000001), 2)
+
+    def name(self) -> str:
+        return "gamma"
+
+
+class BHTSim:
+    """Binary hypothesis testing simulations."""
+
+    def __init__(
+        self,
+        digits: int = 4,
+        distribution: Distribution | None = None,
+    ):
         """Initialization.
 
         Args:
             digits: Number of digits for tolerance.
-            mean_diff: Mean difference of hypotheses.
-            mle_only: Does MLE only.
+            distribution: Distribution of the hypotheses.
         """
         self._digits = digits
-        self._mean_diff = mean_diff
-        self._mle_only = mle_only
+        self._distribution = distribution or Gaussian()
 
     @property
     def tol(self):
         """Tolerance."""
         return 10**-self._digits
 
-    def levy_single(  # pylint: disable=too-many-locals
+    def levy_single(
         self,
         n_samp: list[int],
         rng: np.random.Generator | int | None = None,
-        suffix: str = "",
+        plot: bool = False,
+        plot_estimators: set[EstimatorName] | None = None,
     ) -> list[float]:
         """Gets Levy distances from a single estimation.
 
         Args:
             n_samp: Numbers of likelihood ratio samples under H0 and H1.
             rng: Random number generator.
-            suffix: Suffix for saving ROC curve plot.
+            plot: Whether to plot the ROC curve.
+            plot_estimators: Estimators to plot.
 
         Returns:
             Levy metrics from MLE, empirical and CE to the true ROC.
         """
+        if plot_estimators is None:
+            plot_estimators = set()
         rng = np.random.default_rng(rng)
-        null = np.exp(
-            rng.normal(size=n_samp[0]) * self._mean_diff - 1 / 2 * self._mean_diff**2
-        )
-        alt = np.exp(
-            rng.normal(loc=self._mean_diff, size=n_samp[1]) * self._mean_diff
-            - 1 / 2 * self._mean_diff**2
-        )
-        val = np.append(null, alt)
+        lr_samples = self._distribution.generate_samples(n_samp, rng)
+        val = np.append(lr_samples.null, lr_samples.alt)
         val.sort()
         count = np.concatenate(([0], np.ones(sum(n_samp)), [0]))
         pmf, _ = estimators.mle(val, count)
@@ -68,14 +155,21 @@ class GaussSim:
             amle_val = np.insert(amle_val, 0, 0)
         else:
             amle_pmf0 = amle_pmf0[1:]
-        amle_est = get_roc(amle_val, amle_pmf0, self.tol)
+        try:
+            amle_est = get_roc(amle_val, amle_pmf0, self.tol)
+            dist_alt.append(self.levy(amle_est))
+        except ValueError:
+            dist_alt.append(-1)
+        split_est = estimators.amle_lin(
+            val, count, n_samp[1] / sum(n_samp), np.round(n_samp[1] / sum(n_samp))
+        )
         amle_lin_est = estimators.amle_lin(
             val, count, n_samp[1] / sum(n_samp), n_samp[1] / sum(n_samp)
         )
-        dist_alt.append(self.levy(amle_est))
+        dist_alt.append(self.levy(split_est))
         dist_alt.append(self.levy(amle_lin_est))
         line_width = 3
-        if suffix:
+        if plot:
             plt.figure()
             plt.plot(
                 pfa,
@@ -83,52 +177,73 @@ class GaussSim:
                 ":",
                 label="true",
                 linewidth=line_width,
+                color="C0",
             )
-            plt.plot(
-                roc_est[0, :], roc_est[1, :], "-", label="MLE", linewidth=line_width
-            )
-            plt.plot(
-                amle_est[0, :], amle_est[1, :], "-.", label="AMLE", linewidth=line_width
-            )
-            plt.plot(
-                amle_lin_est[0, :],
-                amle_lin_est[1, :],
-                "--",
-                label="AMLE-Lin",
-                linewidth=line_width,
-            )
-        if n_samp[0] and n_samp[1] and not self._mle_only:
-            n_det = estimators.split(null, alt)
+            if "MLE" in plot_estimators:
+                plt.plot(
+                    roc_est[0, :],
+                    roc_est[1, :],
+                    "-",
+                    label="MLE",
+                    linewidth=line_width,
+                    color="C1",
+                )
+            if "Split" in plot_estimators:
+                plt.plot(
+                    split_est[0, :],
+                    split_est[1, :],
+                    "--",
+                    label="Split",
+                    linewidth=line_width,
+                    color="C2",
+                )
+            if "Fused" in plot_estimators:
+                plt.plot(
+                    amle_lin_est[0, :],
+                    amle_lin_est[1, :],
+                    "--",
+                    label="AMLE-lin",
+                    linewidth=line_width,
+                    color="C3",
+                )
+        if n_samp[0] and n_samp[1]:
+            n_det = estimators.tp_at_fp(lr_samples.null, lr_samples.alt)
             s_roc = estimators.eroc(n_det, False)
             cs_roc = estimators.eroc(n_det, True)
-            if suffix:
-                plt.plot(
-                    s_roc[0, :],
-                    s_roc[1, :],
-                    "--",
-                    drawstyle="steps-post",
-                    label="E",
-                    linewidth=line_width,
-                )
-                plt.plot(
-                    cs_roc[0, :],
-                    cs_roc[1, :],
-                    "-.",
-                    label="CE",
-                    fillstyle="none",
-                    linewidth=line_width,
-                )
+            if plot:
+                if "E" in plot_estimators:
+                    plt.plot(
+                        s_roc[0, :],
+                        s_roc[1, :],
+                        "--",
+                        drawstyle="steps-post",
+                        label="E",
+                        linewidth=line_width,
+                        color="C4",
+                    )
+                if "CE" in plot_estimators:
+                    plt.plot(
+                        cs_roc[0, :],
+                        cs_roc[1, :],
+                        "-.",
+                        label="CE",
+                        fillstyle="none",
+                        linewidth=line_width,
+                        color="C5",
+                    )
             dist_alt.append(self.levy(estimators.zigzag(s_roc)))
             dist_alt.append(self.levy(cs_roc))
         else:
             dist_alt.append(-1)
             dist_alt.append(-1)
-        if suffix:
+        if plot:
             plt.legend()
             plt.xlabel("prob. of false alarm")
             plt.ylabel("prob. of detection")
             plt.tight_layout()
-            plt.savefig(f"{config.PATH}roc-{n_samp[0]}-{n_samp[1]}-{suffix}.pdf")
+            plt.savefig(
+                f"{config.config['paths']['plots_dir']}roc-{n_samp[0]}-{n_samp[1]}.pdf"
+            )
         return dist_alt
 
     def levy(self, piecewise: np.ndarray) -> float:
@@ -144,10 +259,13 @@ class GaussSim:
         Returns:
             The Lévy metric from piecewise to the true Gaussian ROC.
         """
+        piecewise = _force_nondecreasing_x_axis(piecewise)
+        piecewise = _delete_duplicates(piecewise)
+
         if sum(piecewise[:, 0]) > self.tol:
             piecewise = np.insert(piecewise, 0, [0, 0], axis=1)
         if sum(piecewise[:, -1]) < 2 - self.tol:
-            piecewise = np.append(piecewise, np.zeros((2, 1)), axis=1)
+            piecewise = np.append(piecewise, np.ones((2, 1)), axis=1)
         pfa = np.linspace(0, 1, 10**self._digits + 1)
         begin = 0
         max_dist = 0
@@ -157,6 +275,7 @@ class GaussSim:
             alpha = (sum(piecewise[:, begin + 1]) - false_alarm - detection) / (
                 sum(piecewise[:, begin + 1]) - sum(piecewise[:, begin])
             )
+
             dist = abs(
                 alpha * piecewise[0, begin]
                 + (1 - alpha) * piecewise[0, begin + 1]
@@ -170,6 +289,7 @@ class GaussSim:
         self,
         n_samp: list[int],
         n_sims: int,
+        *,
         rng: np.random.Generator | int | None = None,
         from_file: bool = False,
     ) -> np.ndarray:
@@ -184,14 +304,14 @@ class GaussSim:
         Returns:
             Average Levy metrics.
         """
-        filename = f"{config.PATH}levy-all-{n_samp[0]}-{n_samp[1]}-n{n_sims}-mo{self._mle_only}-mu{self._mean_diff}.json"  # noqa: E501
+        filename = _get_filename(n_samp, n_sims)
         if from_file:
             with open(filename, encoding="utf-8") as f:
                 dist_full = json.load(f)
                 dist = np.mean(dist_full, axis=0)
         else:
             rng = np.random.default_rng(rng)
-            dist = np.zeros(5)
+            dist = np.zeros(6)
             dist_full = []
             for _ in tqdm(range(n_sims)):
                 new_dist = self.levy_single(n_samp, rng)
@@ -215,95 +335,239 @@ class GaussSim:
         Returns:
             Maximum probability of detection.
         """
-        return 1 - norm.cdf(norm.ppf(1 - pfa) - self._mean_diff)
+        return self._distribution.roc(pfa)
 
 
-def calc_avg_levy():
+@dataclass(kw_only=True)
+class SamplePair:
+    pos: int
+    neg: int
+    example_rng: int | None = None
+    estimators_in_example: set[EstimatorName] | None = None
+    estimators_in_avg_levy: list[Estimator] | None = None
+
+    def __post_init__(self):
+        if self.estimators_in_example is None:
+            self.estimators_in_example = set()
+        if self.estimators_in_avg_levy is None:
+            self.estimators_in_avg_levy = []
+
+    def get_output_path(self) -> str:
+        return f"{config.config['paths']['plots_dir']}levy-{self.neg}-{self.pos}.pdf"
+
+    def mle_only(self) -> bool:
+        """Only run MLE based estimators for single-class samples."""
+        return not self.neg or not self.pos
+
+
+def calc_avg_levy(samples: list[SamplePair], n_sims: int):
     """Calculates average Levy metrics."""
-    gauss = GaussSim()
-    print(gauss.levy_multiple([10, 10], 500, 0))
-    print(gauss.levy_multiple([100, 100], 500, 1))
-    print(gauss.levy_multiple([1000, 1000], 500, 2))
-    print(gauss.levy_multiple([10, 100], 500, 3))
-    print(gauss.levy_multiple([10, 1000], 500, 4))
-    print(gauss.levy_multiple([100, 1000], 500, 5))
-    print(gauss.levy_multiple([100, 10], 500, 7))
-    gauss = GaussSim(mle_only=True)
-    print(gauss.levy_multiple([100, 0], 500, 6))
+    gauss = BHTSim()
+    for sample_pair in samples:
+        print(gauss.levy_multiple([sample_pair.neg, sample_pair.pos], n_sims))
 
 
-def gen_roc_examples():
+def gen_roc_examples(samples: list[SamplePair]):
     """Generates ROC examples."""
-    gauss = GaussSim()
-    print(gauss.levy_single([10, 10], 0, "0"))
-    print(gauss.levy_single([100, 100], 1, "1"))
-    print(gauss.levy_single([1000, 1000], 2, "2"))
-    print(gauss.levy_single([10, 100], 3, "3"))
-    print(gauss.levy_single([10, 1000], 4, "4"))
-    print(gauss.levy_single([100, 1000], 5, "5"))
-    print(gauss.levy_single([100, 10], 7, "7"))
-    gauss = GaussSim(mle_only=True)
-    print(gauss.levy_single([100, 0], 6, "6"))
+    gauss = BHTSim()
+    for sample_pair in samples:
+        _ = gauss.levy_single(
+            [sample_pair.neg, sample_pair.pos],
+            rng=sample_pair.example_rng,
+            plot=True,
+            plot_estimators=sample_pair.estimators_in_example,
+        )
 
 
-def plot_avg_levy():
+def plot_avg_levy(samples: list[SamplePair], n_sims: int, ylim_upper: float = 0.16):
     """Plots average Levy metrics."""
-    # samples = [[10, 10], [100, 100], [1000, 1000], [10, 100], [10, 1000], [100, 1000]]
-    samples = [[100, 10]]
-    levy_all = []
-    for n_samps in samples:
+    for sample_pair in samples:
         with open(
-            f"{config.PATH}levy-all-{n_samps[0]}-{n_samps[1]}-n500-mo{False}-mu1.json",
+            _get_filename([sample_pair.neg, sample_pair.pos], n_sims),
             encoding="utf-8",
         ) as f:
-            levy_all.append(json.load(f))
-    avg = np.array([np.mean(data, axis=0) for data in levy_all])
-    error = np.array(
-        [np.std(data, axis=0, ddof=1) / np.sqrt(len(data)) for data in levy_all]
-    )
-    for i, this_avg in enumerate(avg):
+            levy_data = json.load(f)
         plt.figure()
-        plt.bar(
-            list(range(5)),
-            this_avg,
-            yerr=error[i],
-            color=["C1", "C2", "C3", "C4", "C5"],
-            capsize=10,
+        for idx, est in enumerate(sample_pair.estimators_in_avg_levy):
+            data = np.array(levy_data)[:, est.index]
+            avg = data.mean()
+            error = np.std(data, ddof=1) / np.sqrt(len(data))
+            plt.bar(
+                idx,
+                avg,
+                yerr=error,
+                color=f"C{est.color}",
+                capsize=10,
+            )
+        plt.ylim(0, ylim_upper)
+        plt.xticks(
+            list(range(len(sample_pair.estimators_in_avg_levy))),
+            [est.name for est in sample_pair.estimators_in_avg_levy],
         )
-        plt.ylim(0, 0.16)
-        plt.xticks(list(range(5)), ["MLE", "AMLE", "AMLE-Lin", "E", "CE"])
         plt.xlabel("estimator")
         plt.ylabel("average Lévy distance")
         plt.tight_layout()
-        plt.savefig(f"{config.PATH}levy-{samples[i][0]}-{samples[i][1]}.pdf")
+        plt.savefig(sample_pair.get_output_path())
 
 
-def plot_avg_levy_mle_only():
-    """Plots average Levy metric for MLE."""
-    with open(f"{config.PATH}levy-all-0-100-n500-mo{True}.json", encoding="utf-8") as f:
-        data = json.load(f)
-    avg = np.mean(data, axis=0)
-    error = np.std(data, axis=0, ddof=1) / np.sqrt(500)
-    plt.figure()
-    plt.bar(
-        [-1, 0, 1],
-        [0, avg[0], 0],
-        yerr=[0, error[0], 0],
-        color=["C0", "C1", "C2"],
-        capsize=10,
-    )
-    plt.ylim(0, 0.16)
-    plt.xticks([-1, 0, 1], ["", "MLE", ""])
-    plt.xlabel("estimator")
-    plt.ylabel("average Lévy distance")
-    plt.tight_layout()
-    plt.savefig(f"{config.PATH}levy-0-100.pdf")
-
-
-if __name__ == "__main__":
+def main():
     plt.style.use("ggplot")
     plt.rcParams.update({"font.size": 20, "pdf.fonttype": 42})
     plt.rcParams.update({"font.size": 20})
-    gen_roc_examples()
-    calc_avg_levy()
-    plot_avg_levy()
+    samples = _structure_sample_pairs(config.config["average-levy"]["sample_pairs"])
+    gen_roc_examples(samples)
+    calc_avg_levy(samples, config.config["average-levy"]["n_sims"])
+    plot_avg_levy(
+        samples,
+        config.config["average-levy"]["n_sims"],
+    )
+    error_v_diff(
+        [
+            structure_estimator(est)
+            for est in config.config["average-levy"]["vary_mu"]["estimators"]
+        ],
+        config.config["average-levy"]["n_sims"],
+    )
+    error_v_composition(
+        [
+            structure_estimator(est)
+            for est in config.config["average-levy"]["vary_alpha"]["estimators"]
+        ],
+        config.config["average-levy"]["n_sims"],
+    )
+
+
+def _structure_sample_pairs(sample_pairs: list[dict[str, Any]]) -> list[SamplePair]:
+    structured_sample_pairs = []
+    for sample_pair in sample_pairs:
+        estimators_in_avg_levy = [
+            structure_estimator(est) for est in sample_pair["estimators_in_avg_levy"]
+        ]
+        structured_sample_pairs.append(
+            SamplePair(
+                neg=sample_pair["neg"],
+                pos=sample_pair["pos"],
+                example_rng=sample_pair["example_rng"],
+                estimators_in_example=set(sample_pair["estimators_in_example"]),
+                estimators_in_avg_levy=estimators_in_avg_levy,
+            )
+        )
+    return structured_sample_pairs
+
+
+def structure_estimator(estimator: dict[str, Any]) -> Estimator:
+    return Estimator(
+        name=estimator["name"],
+        color=estimator["color"],
+        index=estimator["index"],
+        style=estimator.get("style", "-"),
+        comp=Composition(
+            allow_no_neg=estimator.get("comp", {}).get("allow_no_neg", False),
+            allow_no_pos=estimator.get("comp", {}).get("allow_no_pos", False),
+        ),
+    )
+
+
+def _delete_duplicates(piecewise: np.ndarray) -> np.ndarray:
+    """Delete duplicate points from a piecewise linear function."""
+    return np.unique(piecewise, axis=1)
+
+
+def _force_nondecreasing_x_axis(piecewise: np.ndarray) -> np.ndarray:
+    """Force a piecewise linear function to be nondecreasing on the x-axis.
+
+    E.g., if the input is:
+    [[0, 0, 0.5, 0.4, 1], [0, 0.5, 0.5, 1, 1]],
+    the output will be:
+    [[0, 0, 0.5, 0.5, 1], [0, 0.5, 0.5, 1, 1]].
+    """
+    for i in range(len(piecewise[0]) - 1):
+        if piecewise[0, i] > piecewise[0, i + 1]:
+            piecewise[0, i + 1] = piecewise[0, i]
+    return piecewise
+
+
+def error_v_diff(estimators: list[Estimator], n_sims: int):
+    """Evaluates errors of MLE with respect to difference in hypotheses."""
+    diff_list = [0.1] + np.linspace(0.5, 4, 8).tolist()
+    dist = []
+    for diff in diff_list:
+        gauss = BHTSim(distribution=Gaussian(mean_diff=diff))
+        dist.append(gauss.levy_multiple([100, 100], n_sims, rng=42))
+    dist = np.array(dist)
+    plt.figure()
+    line_width = 3
+    for est in estimators:
+        plt.plot(
+            diff_list,
+            dist[:, est.index],
+            est.style,
+            label=est.name,
+            linewidth=line_width,
+            color=f"C{est.color}",
+            markersize=12,
+            fillstyle="none",
+            markeredgewidth="2",
+        )
+    plt.legend()
+    plt.xlabel(r"mean difference $\mu$")
+    plt.ylabel("average Lévy distance")
+    plt.tight_layout()
+    plt.savefig(f"{config.config['paths']['plots_dir']}levy-v-diff-delta-mu.pdf")
+
+
+def error_v_composition(
+    estimators: list[Estimator], n_sims: int, ylim_upper: float = 0.11
+):
+    """Evaluates errors with different sample composition."""
+    total_samp = 200
+    gauss = BHTSim()
+    error = []
+    rng = np.random.default_rng(42)
+    alpha_list = np.linspace(0, 1, 11)
+    for alpha in alpha_list:
+        error.append(
+            gauss.levy_multiple(
+                [int(total_samp * alpha), int(total_samp * (1 - alpha))],
+                n_sims,
+                rng=rng,
+            )
+        )
+    error = np.array(error)
+    plt.figure()
+    line_width = 3
+    for est in estimators:
+        plt.plot(
+            _get_alpha_list(alpha_list, est.comp),
+            error[_get_alpha_list(np.arange(len(alpha_list)), est.comp), est.index],
+            est.style,
+            label=est.name,
+            linewidth=line_width,
+            color=f"C{est.color}",
+            markersize=12,
+            fillstyle="none",
+            markeredgewidth="2",
+        )
+    plt.legend()
+    plt.xlabel(r"fraction of null samples $\alpha$")
+    plt.ylabel("average Lévy distance")
+    plt.ylim(0, ylim_upper)
+    plt.tight_layout()
+    plt.savefig(f"{config.config['paths']['plots_dir']}levy-v-alpha.pdf")
+
+
+def _get_alpha_list(alpha_list: np.ndarray, comp: Composition) -> np.ndarray:
+    alpha_list = alpha_list.tolist()
+    if not comp.allow_no_neg:
+        alpha_list = alpha_list[1:]
+    if not comp.allow_no_pos:
+        alpha_list = alpha_list[:-1]
+    return np.array(alpha_list)
+
+
+def _get_filename(n_samp: list[int], n_sims: int) -> str:
+    return f"{config.config['paths']['data_dir']}levy-all-{n_samp[0]}-{n_samp[1]}-n{n_sims}.json"
+
+
+if __name__ == "__main__":
+    main()

@@ -19,9 +19,20 @@ def _find_package_template_path() -> Path:
 
 
 class Config:
-    def __init__(self, config_name: str = "config.toml"):
+    def __init__(
+        self,
+        config_name: str | None = None,
+        template_path: Path | None = None,
+    ):
+        if config_name is None:
+            config_name = os.environ.get("CAUSAL_RECOVERY_CONFIG", "config.toml")
+
         self.config_path = _find_config_path(config_name)
-        self.template_path = _find_package_template_path()
+
+        if template_path is not None:
+            self.template_path = Path(template_path)
+        else:
+            self.template_path = _find_package_template_path()
 
         if not self.config_path.exists():
             if self.template_path.exists():
@@ -29,12 +40,13 @@ class Config:
                 shutil.copy(self.template_path, self.config_path)
                 os.chmod(self.config_path, 0o600)
                 print(
-                    f"Created {self.config_path} from template.  Please review and adjust settings."
+                    f"Created {self.config_path} from template at {self.template_path}. "
+                    "Please review and adjust settings."
                 )
             else:
                 raise FileNotFoundError(
                     f"Neither {self.config_path} nor {self.template_path} found. "
-                    "Please create a configuration file."
+                    "Please create a configuration file or specify a valid template path."
                 )
 
         self._load_config()
